@@ -40,7 +40,7 @@ race: race (1=white, 2=black, 3=asian, 4=other)
 
 ### Import the data
 
-We can import the data using the `read_csv()` function which is part of the `readr` tidyverse package. The output objects are 'tibbles', a type of data.frame.  
+We can import the data using the `read_csv()` function which is part of the `readr` tidyverse package. The output object is a 'tibble'. From the tibble [site](https://tibble.tidyverse.org/) -- Tibbles are data.frames that are lazy and surly: they do less (i.e. they don’t change variable names or types, and don’t do partial matching) and complain more (e.g. when a variable does not exist) 
 
 ```{r import}
 # longitudinal data (tonguecancer_long.csv)
