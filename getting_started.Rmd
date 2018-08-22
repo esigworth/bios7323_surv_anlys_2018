@@ -1,0 +1,54 @@
+---
+title: BIOS 7323 Lab - Getting Started
+output:
+  html_document: default
+---
+
+### Objective
+
+Get started with [tidyverse](https://www.tidyverse.org/) 
+
+We will use Alberto Cairo's [Datasaurus dataset](https://www.autodeskresearch.com/publications/samestats) which is in the 'DatasaurusDozen.tsv' file.
+
+```{r setup, include=FALSE}
+#This first R chunk sets up some defaults and then installs and loads some packages
+
+knitr::opts_chunk$set(echo = TRUE)
+
+#!! change this line to the directory with the getting_started.Rmd and DatasaurusDozen.tsv files on your computer
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs"))
+
+# install the tidyverse packages
+# install.packages("tidyverse")
+
+# load the packages
+library(tidyverse)
+```
+
+### Import the data
+
+```{r import}
+# the data has x and y coordinates for 13 datasets
+datasaurus <- read_tsv('DatasaurusDozen.tsv')
+
+datasaurus # look at the first 10 lines
+ 
+# Note: you can use as.data.frame() to convert a tibble back to a regular data.frame
+# df_datasaurus <- as.data.frame(datasaurus)
+```
+
+### Check summary statistics
+
+Get summary statistics for each of the 13 datasets using pipes (%>%)
+
+```{r summarize}
+datasaurus %>%  # start with the dataset from above
+  group_by(dataset) %>% # group by the dataset (i.e., dino, away, h_lines)
+  summarize(sd_x=sd(x), sd_y=sd(y), corr_x_y=cor(x,y)) # get sd(x), sd(y), and corr(x,y)
+```
+
+### Plot the Datasaurus
+
+```{r plot}
+ggplot(datasaurus, aes(x=x,y=y)) + geom_point() + facet_wrap(~dataset)
+```
