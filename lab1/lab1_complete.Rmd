@@ -1,0 +1,122 @@
+---
+title: BIOS 7323 Lab 1
+date: 2018-08-27
+output:
+  html_document: default
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab1"))
+
+library(tidyverse)
+library(lubridate)
+library(survival)
+```
+
+### Objective
+
+In this lab you will learn how to organize and format survival data in R using packages from the [tidyverse](https://www.tidyverse.org/). You will need the packages `tidyverse`, `lubridate`, and `survival` and the data files `tonguecancer_long.csv` and `tonguecancer_baseline.csv`.
+
+### Data Description
+
+Information was collected from eighty males diagnosed with tongue cancer between Jan 1, 2001 and Dec 31, 2008. Each person was followed from diagnosis until death or the end of the study. Tumor DNA type, age, and race were also collected for each person at baseline. The data is modified from section 1.11 of Klein & Moeschberger (K&M) and is contained in two files. 
+
+`tonguecancer_long.csv`: longitudinal data set  
+patid: patient ID  
+date: date of record  
+rectype: type of record (1=diagnosis, 9=death)  
+
+`tonguecancer_baseline.csv`: baseline characteristics  
+patid: patient ID  
+tumor: tumor DNA profile (1=aneuploid tumor, 2=diploid tumor)  
+age: patient age in years  
+race: race (1=white, 2=black, 3=asian, 4=other)  
+
+### Import the data
+
+We can import the data using the `read_csv()` function which is part of the `readr` tidyverse package. The output object is a 'tibble'. From the tibble [site](https://tibble.tidyverse.org/) -- Tibbles are data.frames that are lazy and surly: they do less (i.e. they don’t change variable names or types, and don’t do partial matching) and complain more (e.g. when a variable does not exist) 
+
+```{r import}
+# longitudinal data (tonguecancer_long.csv)
+dat_long <- readr::read_csv('tonguecancer_long.csv')
+
+# baseline data (tonguecancer_baseline.csv)
+dat_base <- readr::read_csv('tonguecancer_baseline.csv')
+```
+
+The dat_long object has observations in chronological order. Let's re-arrange by patient ID and look at the first few rows.
+
+```{r view}
+#dat_long arranged by patid
+dplyr::arrange(dat_long, patid)
+```
+
+### Reshape and merge the data
+
+Notice that dat_long dataset is in long format with multiple records per patid. We are interested in the time between diagnosis and death or censoring which is easier to calculate if the data is in wide format. The `spread()` function will put the dates into two columns based on the value of the `rectype` variable.  We then `rename()` the columns and merge on the tumor type and demographic data using `left_join()`.
+
+```{r merge}
+( d1 <- tidyr::spread(dat_long, rectype, date) ) #reshape so dates are in two columns
+( d2 <- dplyr::rename(d1, date1="1", date2="9") ) #renames new columns
+( d3 <- dplyr::left_join(d2, dat_base) ) #merge on the tumor & demographic data
+
+# Equivalently, do all 3 steps above in one line using pipes (%>%)
+( dat_wide <- spread(dat_long, rectype, date) %>% rename(date1="1", date2="9") %>% left_join(dat_base) )
+
+# check 
+identical(d3, dat_wide)
+```
+
+### Change data type and add labels
+
+The `tumor` and `race` variables are currently 'integer' values. Let's use `mutate()` and `recode_factor()` to convert them from 'integer' to 'factor' and add some labels.
+
+```{r label}
+( dat_label <- dplyr::mutate(dat_wide,
+       tumor=recode_factor(tumor, `1`="aneuploid", `2`="diploid"),
+       race=recode_factor(race, `1`="white", `2`="black", `3`="asian", `4`="other") )
+)
+```
+
+### Add event indicator and censoring date
+
+Survival data has two parts, a time-to-event (e.g., the time between diagnosis and death) and an event indicator (did death occur?). Patients who did not experience the event have a *censored* time. In the tongue cancer data, death is indicated by a non-missing `date2` value. If `date2` is missing the time was censored at the end of the study. We use `mutate()` and `if_else()` [note the underscore!] to create an event indicator (0=censored, 1=death) and then replace the missing `date2` values with the end of study censoring date (12/31/2008) for those who did not die.
+
+```{r death_ind}
+tail(dat_label, 10) # look at last 10 rows of dat_label
+
+# create (0/1) event indicator for death and add censoring date
+dat_ind <- mutate(dat_label,
+                    death=if_else(is.na(date2),0,1),
+                    date2=if_else(death==0,"12/31/2008",date2) )
+
+tail(dat_ind, 10) # last 10 rows of dat_ind
+```
+
+### Create time-to-event and survival object
+
+The next step is to calculate the survival time which is the difference between the diagnosis date and the death or censoring date.
+
+The function `mdy()` from the `lubridate` package converts the `date1` and `date2` variables from 'character' to 'date' format. Then we take the difference to create a new variable called `stime`. 
+
+```{r study_time}
+( dat_final <- mutate(dat_ind, date1=mdy(date1), date2=mdy(date2), stime=date2-date1) )
+```
+
+Finally we need to create a special type of R object called a 'Surv' which contains the two types of information needed for survival data (time-to-event and event indicator). A 'Surv' is actually a matrix with the survival times in the first column and the event indicator in the second column along with a few other attributes. When you print a Surv object, censored survival times will appear with a `+`. 
+
+```{r surv_obj}
+( S <- Surv(time=dat_final$stime, event=dat_final$death) )
+
+#example - use Surv object to make a Kaplan-Meier plot
+plot(survfit(S ~ tumor, data=dat_final), 
+     col=c(1,2), xlab="time (days)", ylab="survival probability")
+
+legend("topright", title="tumor DNA profile", legend=c("aneuploid", "diploid"), 
+       lty=c(1,1), col=c(1,2))
+```
+
+
