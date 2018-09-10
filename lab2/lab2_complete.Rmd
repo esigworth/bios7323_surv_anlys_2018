@@ -1,0 +1,231 @@
+---
+title: BIOS 7323 Lab 2
+date: 2018-09-10
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab2"))
+
+library(tidyverse)
+```
+
+### Objectives
+
+Simulate parametric survival data
+
+Explore basic quantities and censoring & truncation
+
+####  Example - simulate parametric survival data *without* censoring
+
+```{r}
+# Note: Weibull has different parameterization in K&M text and R
+# K&M param Weibull(alpha, lambda)
+# R param Weibull(shape, scale)
+# shape = alpha
+# scale = (1/lambda)^(1/alpha)
+
+# set parameters
+t <- seq(0.01,15, length=500)
+alpha <- 0.5
+lambda <- 0.26328
+
+# density f(t)
+f_t <- dweibull(t, shape=alpha, scale=(1/lambda)^(1/alpha))
+qplot(x=t, y=f_t, geom='line')
+
+# Survival function S(t)
+S_t <- pweibull(t, shape=alpha, scale=(1/lambda)^(1/alpha), lower.tail=FALSE)
+qplot(x=t, y=S_t, geom='line')
+
+# hazard function h(t)
+h_t <- f_t/S_t
+qplot(x=t, y=h_t, geom='line')
+
+# Cumulative hazard H(t)
+H_t = cumsum(h_t)
+qplot(x=t, y=H_t, geom='line')
+```
+
+#### Censoring
+
+Censoring is present if the true event time, $x$, is not known exactly but we have some information about when the event occurred. Consider the following situations:
+
+Right Censoring - event occurs after observed time $t$, $x \in (t,\infty)$
+
+Left Censoring - event occurs before observed time $t$, $x \in (-\infty,t)$
+
+Interval Censoring - event occurs after time $t_1$ and before time $t_2$, $x \in (t_1,t_2)$
+
+Uncensored (Exact) - event occurs at observed time $t$, $x = t$
+
+Double censoring -  left censored, right censored and uncensored (exact) times in dataset 
+
+#### Truncation
+
+Truncation occurs when only events with times within a certain window are observed.
+
+Left Truncation - only individuals who survive without the event to a specified time are included in sample.
+
+Right Truncation - only individuals who have experienced the event by specified time are included in sample.
+
+
+Note:  If the event time for an individual is censored, we have some information about when the event occurred. Under truncation, we don't have any information for people outside the "observable window". The event or censoring times for individuals who are observed are conditional on being in this window.
+
+#### Example - simulate parametric survival data *with* censoring
+ 
+Consider an experiment in which mice are given a carcinogen to induce skin tumors.  All mice (n=20) are sacrificed at the same time, two months after the carcinogen is given. We are interested in estimating mean and median time to tumor induction. Assume the true tumor time follows a unit exponential distribution.
+ 
+ a) Simulate the observed time-to-event data and plot the data indicating whether an observation is censored or an event.
+```{r}
+set.seed(234)
+
+#simulate 20 event times from exp(1) and censor times > 2 months
+( mice20<-list(t0=rexp(20,1)) %>% 
+    as.tibble() %>% 
+    mutate(censored=t0>2, t=if_else(censored,2,t0)) )
+
+#plot data
+ggplot(mice20, aes(x=t, y=1:20, shape=censored) ) +
+  geom_segment(aes(x=0, y=1:20, xend=t, yend=1:20), linetype=3) +
+  geom_point() +
+  xlab("time to tumor (months)") + ylab("mice")
+```
+
+b) Estimate the mean and median time to event using two strategies (i) Ignoring the censored observations (excluding data from censored mice) and (ii) Ignoring censoring (treating censored times as event times).
+
+```{r}
+#mean and median for observed mice only (exclude censored times)
+( summ1 <- filter(mice20, censored==FALSE) %>% summarise_at('t', c(mn1=mean,med1=median)) )
+
+#mean and median ignoring censoring (treat censored time as event time)
+( summ2 <- summarise_at(mice20, 't', c(mn2=mean,med2=median)) )
+```
+
+c)  Calculate the maximum likelihood estimate (MLE) for the mean = (total patient time on study)/(total number of events) and the MLE for the median = log(2) x (total patient time on study)/(total number of events) [See K&M Ex. 3.8] and compare to the estimates from part (b).
+
+```{r}
+#get MLE of mean and median
+summ3 <- mutate(mice20,event=(censored==FALSE)) %>% 
+  summarise_at(c('t','event'),sum) %>% 
+  transmute(mnMLE=t/event,medMLE=log(2)*mnMLE)
+
+#compare mean and median estimates
+bind_cols(summ1, summ2, summ3)
+```
+
+#### Exercises
+
+1. Repeat the mouse carcinogen example using n=10000 mice (plotting isn't necessary). What can you say about the 3 estimates of the mean and median time to event?
+
+```{r}
+set.seed(234)
+
+#simulate 10000 events times from exp(1), censor times > 2 months
+( mice10k<-as.tibble( list(t0=rexp(1e4,1)) ) %>% 
+    mutate(censored=t0>2, t=if_else(censored,2,t0)) )
+
+#mean and median for observed mice only (exclude censored times)
+summ1 <- filter(mice10k,censored==FALSE) %>% summarise_at('t', c(mn1=mean,med1=median))
+
+#mean and median ignoring censoring (treat censored time as event time)
+summ2 <- summarise_at(mice10k, 't', c(mn2=mean,med2=median)) 
+
+#get MLE of mean and median
+summ3 <- mutate(mice10k,event=(censored==FALSE)) %>% 
+  summarise_at(c('t','event'),sum) %>% 
+  transmute(mnMLE=t/event,medMLE=log(2)*mnMLE)
+
+#compare mean and median estimates
+bind_cols(summ1, summ2, summ3)
+```
+
+2. Consider a two year chemotherapy study of 35 participants with staggered entry times. Assume entry times are uniformly distributed over the study period and time to toxicity (after entry) follows a unit (in years) exponential distribution. Perform steps (a) - (c) of the example for this study (use the same formulas for the MLEs).
+
+```{r}
+set.seed(3467)
+
+#create entry time, time-to-event (after entry), censored time and indicator, and observed time for 35 participants
+chemo<-as.tibble( list(entry=runif(35,min=0,max=2), tte=rexp(35,rate=1)) ) %>%
+  mutate(ctime=entry+tte, cens=ctime>2, ctime=if_else(cens,2,ctime), t=ctime-entry)
+
+#plot showing staggered entry
+ggplot(chemo, aes(x=ctime, y=1:35, shape=cens) )+
+  xlab("calendar time") + ylab("participants")+
+  geom_segment(aes(x=entry, y=1:35, xend=ctime, yend=1:35), linetype=3)+
+  geom_point()
+
+#plot w/ common time since entry
+ggplot(chemo, aes(x=t, y=1:35, shape=cens) )+
+  xlab("time since entry (years)") + ylab("participants")+
+  geom_segment(aes(x=0, y=1:35, xend=t, yend=1:35), linetype=3)+
+  geom_point()
+
+#mean and median for observed (exclude censored times)
+summ1 <- filter(chemo,cens==FALSE) %>% summarise_at('t', c(mn1=mean,med1=median))
+
+#mean and median ignoring censoring (treat censored time as event time)
+summ2 <- summarise_at(chemo, 't', c(mn2=mean,med2=median)) 
+
+#get MLE of mean and median
+summ3 <- mutate(chemo,event=(cens==FALSE)) %>% summarise_at(c('t','event'),sum) %>% transmute(mnMLE=t/event,medMLE=log(2)*mnMLE)
+
+#compare mean and median estimates
+bind_cols(summ1, summ2, summ3)
+```
+
+3. Suppose a study is designed to follow a cohort of 50 stroke survivors. All subjects are to be followed until death, but there is random dropout which causes some participants to be lost to follow-up. Assume time to death follows a unit exponential distribution and time to dropout follows a gamma distribution with lambda (shape) = 4 and gamma (scale) = 0.5 and perform steps (a) - (c) for this scenario (use the same formulas for the MLEs).
+
+```{r}
+set.seed(8142)
+
+# create true time to event from exp(1) and time to dropout from gamma(4,0.5)
+stroke<-as.tibble( list(t0=rexp(50,rate=1),c=rgamma(50,shape=4,scale=0.5))) %>%
+  mutate(censored=c<t0, t=if_else(censored,c,t0))
+
+#plot
+ggplot(stroke, aes(x=t, y=1:50, shape=censored) )+
+  xlab("time since entry") + ylab("participants")+
+  geom_segment(aes(x=0, y=1:50, xend=t, yend=1:50), linetype=3)+
+  geom_point()
+
+#mean and median for observed (exclude censored times)
+summ1<-filter(stroke,censored==FALSE) %>% summarise_at('t', c(mn1=mean,med1=median))
+
+#mean and median ignoring censoring (treat censored time as event time)
+summ2<-summarise_at(stroke, 't', c(mn2=mean,med2=median)) 
+
+#get MLE of mean and median
+summ3<-mutate(stroke,event=(censored==FALSE)) %>% summarise_at(c('t','event'),sum) %>% transmute(mnMLE=t/event,medMLE=log(2)*mnMLE)
+
+#compare mean and median estimates
+bind_cols(summ1, summ2, summ3)
+```
+
+For each scenario above, you calculated 3 means and medians. Is the ordering of the estimates as you expected? What conclusions can you draw from these examples?
+
+
+4. For individuals with a certain genetic disorder, symptoms do not appear until age 20 but the hazard associated with the disorder exists all the time. A study whose aim is to estimate survival for patients with this disorder only includes subjects older than 20, because patients are not known to have the disorder before presenting with symptoms. Assume the true event time follows an exponential distribution with rate = 0.04. Simulate 250 event times and estimate the mean in the entire sample and the mean in the truncated sample (excluding event times < 20). Then estimate the mean using the MLE conditioning on truncation. How does the mean in the complete sample compare to the other estimates?
+
+```{r}
+set.seed(4588)
+dat <- as.tibble( list(t=rexp(250, 0.04)) )
+
+#mean in original sample
+mn1<-summarize_all(dat,mean)
+
+#mean in only truncated data
+trunc_age <- 20
+mn2<-filter(dat, t>trunc_age) %>% summarize_all(mean)
+
+#mean MLE = 1/lambda_hat 
+# lambda_hat = n/sum(x_i - y_i)
+# x_i is (truncated) event time and y_i is truncation time
+mnMLE<-filter(dat, t>trunc_age) %>% mutate(num=1, denom=t-trunc_age) %>% 
+  summarize_at(c('num','denom'),sum) %>% 
+  transmute(lambda_hat=num/denom, mean=1/lambda_hat)
+
+cbind(mn1,mn2,mnMLE['mean'])
+```
