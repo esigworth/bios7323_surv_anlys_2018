@@ -159,11 +159,18 @@ bind_cols(summ1, summ2, summ3)
 3. Suppose a study is designed to follow a cohort of 50 stroke survivors. All subjects are to be followed until death, but there is random dropout which causes some participants to be lost to follow-up. Assume time to death follows a unit exponential distribution and time to dropout follows a gamma distribution with lambda (shape) = 4 and gamma (scale) = 0.5 and perform steps (a) - (c) for this scenario (use the same formulas for the MLEs).
 
 ```{r}
+# create true time to event from exp(1) and time to dropout from gamma(4,0.5)
 
+#mean and median for observed (exclude censored times)
+
+#mean and median ignoring censoring (treat censored time as event time)
+
+#get MLE of mean and median
+
+#compare mean and median estimates
 ```
 
 For each scenario above, you calculated 3 means and medians. Is the ordering of the estimates as you expected? What conclusions can you draw from these examples?
-
 
 4. For individuals with a certain genetic disorder, symptoms do not appear until age 20 but the hazard associated with the disorder exists all the time. A study whose aim is to estimate survival for patients with this disorder only includes subjects older than 20, because patients are not known to have the disorder before presenting with symptoms. Assume the true event time follows an exponential distribution with rate = 0.04. Simulate 250 event times and estimate the mean in the entire sample and the mean in the truncated sample (excluding event times < 20). Then estimate the mean using the MLE conditioning on truncation. How does the mean in the complete sample compare to the other estimates?
 
