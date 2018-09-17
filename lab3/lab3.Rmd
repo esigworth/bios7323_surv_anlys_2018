@@ -1,0 +1,138 @@
+---
+title: BIOS 7323 Lab 3
+date: 2018-09-17
+output:
+  html_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab3"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(ggfortify)
+library(magrittr)
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+library(OIsurv)
+```
+
+### Objectives
+
+Calculate and compare non-parametric estimators of Survival (S(t)) and Cumulative Hazard (H(t)) for right-censored data
+
+Construct pointwise confidence intervals and confidence bands for the Survival function
+
+####  Non-parametric survival estimators
+
+##### Kaplan-Meier
+
+```{r}
+#load drug 6mp data
+data(drug6mp)
+
+# create a Surv object using time=t2 and event=relapse
+
+# use survfit() to get a Kaplan-Meier (K-M) estimate of survival for 6mp patients
+# hint: check documentation for survfit.formula 
+
+
+# summarize the survfit object using summary()
+
+
+# compare the structure of the survfit object and its summary
+
+
+# find the median survival time
+
+
+# plot the K-M curve
+
+
+```
+
+##### Aside: Survival estimates for multiple groups
+
+```{r}
+# load tongue cancer data
+data(tongue)
+
+#get K-M estimates and plot curves by tumor type using formula notation
+# i.e. survfit(Surv(time,event) ~ type, ...)
+
+```
+
+##### Fleming-Harrington
+
+```{r}
+# use survfit to get a Fleming-Harrington (F-H) estimate of survival for 6mp patients
+
+
+# find the median survival time based on the F-H estimate
+
+
+# compare the K-M estimate to the F-H estimate by plotting both on the same graph
+
+
+```
+
+####  Non-parametric cumulative hazard estimators
+
+```{r}
+#use the relationship H(t) = -log(S(t)) to calculate the cumulative hazard using both the K-M and F-H survival estimates from above
+
+
+# Use the calcna() function below to directly calculate the Nelson-Aalen estimate of cumulative hazard
+# (http://sas-and-r.blogspot.com/2010/05/example-739-nelson-aalen-estimate-of.html)
+
+calcna = function(time, event) {
+   na.fit = survfit(coxph(Surv(time,event)~1), type="aalen")
+   jumps = c(0, na.fit$time, max(time))
+   # need to be careful at the beginning and end
+   surv = c(1, na.fit$surv, na.fit$surv[length(na.fit$surv)])
+
+   # apply appropriate transformation
+   neglogsurv = -log(surv)   
+   
+   # create placeholder of correct length
+   naest = numeric(length(time))  
+   for (i in 2:length(jumps)) {
+      naest[which(time>=jumps[i-1] & time<=jumps[i])] = 
+         neglogsurv[i-1]   # snag the appropriate value
+   }
+   return(naest)
+}
+
+
+# Compare the cumulative hazard estimates calculated from the K-M and F-H survival estimates with the Nelson-Aalen estimate of cumulative hazard
+# What can you say about the 3 estimates?
+
+
+```
+
+#### Pointwise confidence intervals for S(t)
+
+```{r}
+# The default confidence interval for survfit() is "log"
+# get a new K-M estimate for the 6mp data using conf.type="log-log" instead
+# Compare the "log-log" CI and the "log" CI for the K-M estimate
+
+```
+
+
+#### Confidence bands for S(t)
+
+```{r}
+# Use the tongue cancer data to create a survival object for time to death (ignoring type)
+# and use this new Surv object to create a plot of the K-M survival estimate with:
+# 1) pointwise "log-log" confidence intervals
+# 2) equal probability (EP) confidence bands using log-log transform
+# 3) Hall-Wellner confidence bands using log-log transform
+# hint: use OIsurv::confBands() for 2) and 3)  
+
+````
