@@ -1,0 +1,181 @@
+---
+title: BIOS 7323 Lab 3
+date: 2018-09-17
+output:
+  html_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab3"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(ggfortify) #to plot survival curves with ggplot2
+library(magrittr) # to get %$% operator
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+library(OIsurv)
+```
+
+### Objectives
+
+Calculate and compare non-parametric estimators of Survival (S(t)) and Cumulative Hazard (H(t)) for right-censored data
+
+Construct pointwise confidence intervals and confidence bands for the Survival function
+
+####  Non-parametric survival estimators
+
+##### Kaplan-Meier
+
+```{r}
+#load drug 6mp data
+data(drug6mp)
+
+#create a Surv object using time=t2 and event=relapse
+surv6mp <- as.tibble(drug6mp) %>% arrange(t2) %$% Surv(time=t2, event=relapse)
+  
+surv6mp_2 <- as.tibble(drug6mp) %>% arrange(t2) %>% {Surv(time=.[["t2"]], event=.[["relapse"]])}
+
+identical(surv6mp, surv6mp_2)
+
+# use survfit() to get a Kaplan-Meier (K-M) estimate of survival for 6mp patients
+# hint: check documentation for survfit.formula 
+sfit6mp_km <- survfit(surv6mp~1, type="kaplan-meier")
+
+# summarize the survfit object using summary()
+sfit6mp_km_summ <- summary(sfit6mp_km)
+
+# compare the structure of the survfit object and its summary
+str(sfit6mp_km)
+str(sfit6mp_km_summ)
+
+# find the median survival time
+sfit6mp_km_summ$table["median"]
+sfit6mp_km
+
+# plot the K-M curve
+plot(sfit6mp_km, mark.time = TRUE)
+
+# using ggplot2 and ggfortify
+autoplot(sfit6mp_km)
+
+#Tatsuki Koyama's kmplot()
+#source("http://biostat.mc.vanderbilt.edu/wiki/pub/Main/TatsukiRcode/RFunctions1.R")
+#kmplot(sfit6mp_km)
+```
+
+##### Aside: Survival estimates for multiple groups
+
+```{r}
+# load tongue cancer data
+data(tongue)
+
+#get K-M estimates and plot curves by tumor type using formula notation
+# i.e. survfit(Surv(time,event) ~ type, ...)
+# base R
+tongue_km <- survfit(Surv(time,delta)~type, type="kaplan-meier", data=tongue)
+plot(tongue_km, lty=1:2, mark.time = TRUE)
+
+# ggplot
+survfit(Surv(time,delta)~type, type="kaplan-meier", data=tongue) %>% autoplot(conf.int=FALSE)
+```
+
+##### Fleming-Harrington
+
+```{r}
+# use survfit to get a Fleming-Harrington (F-H) estimate of survival for 6mp patients
+sfit6mp_fh <- survfit(surv6mp~1, type="fleming-harrington", conf.int=FALSE)
+summary(sfit6mp_fh)
+
+# find the median survival time
+sfit6mp_fh
+
+# compare the K-M survival estimate to the F-H estimate by plotting both on the same graph
+plot(sfit6mp_km, conf.int = FALSE)
+lines(sfit6mp_fh, col="red")
+legend("bottomleft", legend=c("Kaplan-Meier","Fleming-Harrington"), lty=c(1,1), col=c("black", "red"))
+```
+
+####  Non-parametric cumulative hazard estimators
+
+```{r}
+#use the relationship H(t) = -log(S(t)) to calculate the cumulative hazard using both the K-M and F-H survival estimates from above
+
+hfit6mp_km <- -log(sfit6mp_km$surv)
+hfit6mp_fh <- -log(sfit6mp_fh$surv)
+cumhaz1 <- list(time=sfit6mp_km$time, chaz_km=hfit6mp_km, chaz_fh=hfit6mp_fh) %>% as.tibble()
+
+# Use the calcna() function below to directly calculate the Nelson-Aalen estimate of cumulative hazard
+# (http://sas-and-r.blogspot.com/2010/05/example-739-nelson-aalen-estimate-of.html)
+
+calcna = function(time, event) {
+   na.fit = survfit(coxph(Surv(time,event)~1), type="aalen")
+   jumps = c(0, na.fit$time, max(time))
+   # need to be careful at the beginning and end
+   surv = c(1, na.fit$surv, na.fit$surv[length(na.fit$surv)])
+
+   # apply appropriate transformation
+   neglogsurv = -log(surv)   
+   
+   # create placeholder of correct length
+   naest = numeric(length(time))  
+   for (i in 2:length(jumps)) {
+      naest[which(time>=jumps[i-1] & time<=jumps[i])] = 
+         neglogsurv[i-1]   # snag the appropriate value
+   }
+   return(naest)
+}
+
+hfit6mp_na <- calcna(drug6mp$t2,drug6mp$relapse)
+
+
+cumhaz2 <- list(time=drug6mp$t2,chaz_na=hfit6mp_na) %>% as.tibble() %>% distinct() %>% arrange(time)
+
+# Compare the cumulative hazard estimates calculated from the K-M and F-H survival estimates with the Nelson-Aalen estimate of cumulative hazard
+# What can you say about the 3 estimates?
+
+left_join(cumhaz1, cumhaz2, by="time") %>% gather(type, cumhaz, -time) %>% ggplot(aes(x=time,y=cumhaz,color=type)) + geom_step() + facet_grid(.~type)
+```
+
+#### Pointwise confidence intervals for S(t)
+
+```{r}
+# The default confidence interval for survfit() is "log"
+# get a new K-M estimate for the 6mp data using conf.type="log-log" instead
+# Compare the "log-log" CI and the "log" CI for the K-M estimate
+
+sfit6mp_km2 <- survfit(surv6mp~1, type="kaplan-meier", conf.type="log-log")
+
+plot(sfit6mp_km, conf.int = TRUE)
+par(new=TRUE)
+plot(sfit6mp_km2,conf.int = TRUE,col="red")
+```
+
+
+#### Confidence bands for S(t)
+
+```{r}
+# Use the tongue cancer data to create a survival object for time to death (ignoring type)
+# and use this new Surv object to create a plot of the K-M survival estimate with:
+# 1) pointwise "log-log" confidence intervals
+# 2) equal probability (EP) confidence bands using log-log transform
+# 3) Hall-Wellner confidence bands using log-log transform
+# hint: for 2) and 3) use OIsurv::confBands() 
+survtong <- tongue %$% Surv(time, delta) 
+
+tongue_km_all <- survfit(survtong~1, type="kaplan-meier", conf.type="log-log")
+cb_ep <- OIsurv::confBands(survtong, confType = "log-log", type="ep")
+cb_hall <- OIsurv::confBands(survtong, confType = "log-log", type="hall")
+
+plot(tongue_km_all, mark.time = TRUE)
+lines(cb_ep, col="green")
+lines(cb_hall, col="red")
+legend("topright",legend=c("pointwise (log-log) CI","EP CB","Hall-Wellner CB"),
+       lty=c(2,1,1),
+       col=c("black","green","red"))
+````
