@@ -1,0 +1,175 @@
+---
+title: BIOS 7323 Lab 4
+date: 2018-09-24
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab4"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(ggfortify)
+library(magrittr)
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+```
+
+### Objectives
+
+Calculate point and interval estimates of mean, median, and other quantiles of survival time
+
+Estimate survival for left truncated, right censored data
+
+#### Point estimates of S(t) and survival times
+
+```{r}
+# Load the tongue cancer data set and use it to answer the following questions
+data(tongue)
+
+tongue_km <- survfit(Surv(time, delta)~1, type="kaplan-meier",conf.type="log-log", data=tongue)
+
+surv_tab <- summary(tongue_km) %$% cbind(time, n.risk, n.event, n.censor, surv, std.err) %>% as.tibble()
+
+# !!! NOTE !!! 
+# std.err from survfit.object is the standard error of the cumulative hazard function
+# std.err from summary.survfit is the standard error of survival function
+# see ?survfit.object and ?summary.survfit
+
+# What is the median survival time?
+
+print(tongue_km)
+#  73 weeks
+
+# What is the probability of survival at 26 weeks? 52 weeks?
+
+surv_tab %>% filter(time>=26)
+surv_tab %>% filter(time>=51)
+
+#  72.3% and 59.6%,respectively
+
+
+# At what time do we estimate 75% of patients will have died? 90%?
+
+surv_tab %>% filter(surv<0.25)
+#  inf(t:S(t)<=1-p)
+#  167 weeks is time when >75% of patients will have died
+#  survival curve never goes below 10%, so no estimate for time when 90% will have died
+
+# At what time are 10% (or less) of the patients still in the study?
+
+surv_tab %>% filter(n.risk<=8)
+#  look at n.risk 8 pts at risk at time 157
+
+```
+
+#### Estimates of mean and confidence interval
+
+In K & M Chapter 2, it was shown that the mean time to event is
+
+$\mu = \int_{0}^{\infty} S(t)dt$
+
+An estimate of the mean survival can be obtained by plugging in the nonparametric estimate of $S(t)$
+
+$\hat{\mu} = \int_{0}^{\tau} \hat{S(t)}dt$
+
+where $\tau$ must be selected by the investigator.
+
+```{r}
+# Use the survfit object and the print method with option rmean="common" to estimate the mean survival time and a 95% confidence interval using Efron's tail correction
+
+print(tongue_km, rmean="common")
+print(tongue_km, rmean=max(tongue$time))
+
+tab_efron <- tongue_km %>% summary(rmean="common") %>% extract2("table")
+mn_ef <- tab_efron %>% extract("*rmean")
+se_ef <- tab_efron %>% extract("*se(rmean)")
+
+mn_ef + c(-1,1)*qnorm(0.975)*se_ef
+
+# Estimate the mean survival time and a 95% confidence interval assuming no one can survive past 300 weeks
+
+print(tongue_km, rmean=300)
+
+tab_300<-tongue_km %>% summary(rmean=300) %>% extract2("table")
+mn_300<-tab_300 %>% extract("*rmean")
+se_300<-tab_300 %>% extract("*se(rmean)")
+
+mn_300 + c(-1,1)*qnorm(0.975)*se_300
+
+# Which estimate do you prefer? Why?
+
+```
+
+#### Confidence interval for quantiles
+
+```{r}
+# Calculate a 95% log-log CI for the median survival time using the method in K & M Chp. 4 (p. 120-122)
+
+p <- 0.5
+surv_tab %<>% mutate(linear = (surv-(1-p))/std.err,
+                     loglog = ((log(-log(surv))-log(-log(1-p)))*surv*log(surv))/std.err,
+                     asin = (2*(asin(sqrt(surv))-asin(sqrt(1-p)))*sqrt(surv*(1-surv)))/std.err)
+
+surv_tab
+
+surv_tab %>% filter(between(loglog,-1.96,1.96)) %>% select(time) %>% range()
+surv_tab %>% filter(between(linear,-1.96,1.96)) %>% select(time) %>% range()
+surv_tab %>% filter(between(asin,-1.96,1.96)) %>% select(time) %>% range()
+
+#compare this to the 95% CI for the median that is produced when printing a summary of the survfit object (or using quantile.survfit). Are the intervals the same?
+
+tongue_km
+quantile(tongue_km, probs=0.5)
+
+plot(tongue_km)
+abline(h=0.5,col="red")
+abline(v=c(42,104), lty=3, col="red") #from quantile
+abline(v=c(42,100), lty=3, col="blue") #from log-log calc in book
+
+```
+
+
+```{r}
+# Example 4.2 K&M p120-122
+data(bmt)
+
+p<-0.5
+bmt_surv<-bmt %>% as.tibble() %>% filter(group==1) %$% Surv(t2, d3)
+bmt_km<-survfit(bmt_surv~1, type="kaplan-meier",error="greenwood")
+bmt_tab<-summary(bmt_km) %$% cbind(time, n.risk, n.event, n.censor, surv, std.err) %>% as.tibble()
+
+bmt_tab %<>% mutate(linear=(surv-(1-p))/std.err,
+                    loglog=((log(-log(surv))-log(-log(1-p)))*surv*log(surv))/std.err,
+                    asin=(2*(asin(sqrt(surv))-asin(sqrt(1-p)))*sqrt(surv*(1-surv)))/std.err)
+bmt_tab
+
+bmt_tab %>% filter(between(linear,-1.96,1.96)) %>% select(time) %>% range()
+bmt_tab %>% filter(between(loglog,-1.96,1.96)) %>% select(time) %>% range()
+bmt_tab %>% filter(between(asin,-1.96,1.96)) %>% select(time) %>% range()
+```
+
+#### Estimators for left-truncated, right censored data
+
+```{r}
+# read in the psych data and create a survival object using 'ageentry' as the left truncation time
+psych<-read_csv("psych.csv")
+
+# get K-M estimates and log-log confidence intervals by sex 
+psych_km<-survfit(Surv(ageentry, agestop, death)~sex, 
+                  data=subset(psych,ageentry>=21), conf.type="log-log")
+            
+#plot conditional survival estimates given survival to age 21
+autoplot(psych_km,xlim=c(21,80))
+       
+#plot conditional survival estimates given survival to age 35
+psych_km35<-survfit(Surv(ageentry, agestop, death)~sex,
+                    data=subset(psych,ageentry>=35),conf.type="log-log")
+     
+autoplot(psych_km35,xlim=c(21,80))
+
+```
