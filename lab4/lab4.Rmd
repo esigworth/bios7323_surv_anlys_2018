@@ -1,0 +1,105 @@
+---
+title: BIOS 7323 Lab 4
+date: 2018-09-24
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab4"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(ggfortify)
+library(magrittr)
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+```
+
+### Objectives
+
+Calculate point and interval estimates of mean, median, and other quantiles of survival time
+
+Estimate survival for left truncated, right censored data
+
+#### Point estimates of S(t) and survival times
+
+```{r}
+# Load the tongue cancer data set and use it to answer the following questions
+data(tongue)
+
+tongue_km <- survfit(Surv(time, delta) ~ 1, type="kaplan-meier", conf.type="log-log", data=tongue)
+
+# !!! NOTE !!! 
+# std.err from survfit.object is the standard error of the cumulative hazard function
+# std.err from summary.survfit is the standard error of survival function
+# see ?survfit.object and ?summary.survfit
+
+# What is the median survival time?
+
+
+# What is the probability of survival at 26 weeks? 52 weeks?
+
+
+# At what time do we estimate 75% of patients will have died? 90%?
+
+
+# At what time are 10% (or less) of the patients still in the study?
+
+
+```
+
+#### Estimates of mean and confidence interval
+
+In K & M Chapter 2, it was shown that the mean time to event is
+
+$\mu = \int_{0}^{\infty} S(t)dt$
+
+An estimate of the mean survival can be obtained by plugging in the nonparametric estimate of $S(t)$
+
+$\hat{\mu} = \int_{0}^{\tau} \hat{S(t)}dt$
+
+where $\tau$ must be selected by the investigator.
+
+```{r}
+# Use the survfit object and the print method with option rmean="common" to estimate the mean survival time and a 95% confidence interval using Efron's tail correction
+
+
+# Estimate the mean survival time and a 95% confidence interval assuming no one can survive past 300 weeks
+
+
+# Which estimate do you prefer? Why?
+
+```
+
+#### Confidence interval for quantiles
+
+```{r}
+# Calculate a 95% log-log CI for the median survival time using the method in K & M Chp. 4 (p. 120-122)
+
+
+# compare this to the 95% CI for the median that is produced when printing a summary of the survfit object (or using quantile.survfit). Are the intervals the same?
+
+
+```
+
+
+#### Estimators for left-truncated, right censored data
+
+```{r}
+# read in the psych data and create a survival object using 'ageentry' as the left truncation time and 'agestop' as the right censoring time
+psych <- read_csv("psych.csv")
+
+# get K-M estimates and log-log confidence intervals by sex given survival to age 21
+
+            
+#plot conditional survival estimates given survival to age 21
+
+
+#plot conditional survival estimates given survival to age 35
+
+
+```
