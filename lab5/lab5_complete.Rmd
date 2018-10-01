@@ -1,0 +1,128 @@
+---
+title: BIOS 7323 Lab 5
+date: 2017-10-01
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab5"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(GGally)
+library(survminer)
+library(magrittr)
+library(scales)
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+```
+
+### Objectives
+
+Perform 1 and 2 sample hypothesis tests in R
+
+#### One sample hypothesis tests
+
+A review of the tongue cancer literature found two previous manuscripts that used parametric models for overall survival. The first paper used an exponential model with $\lambda=0.009$ (i.e. $S(t)=\exp(-0.009t)$) while the second paper used a log-logistic model with $\lambda=0.016$ and $\alpha=1$ ($S(t)=\frac{1}{1+0.016t}$).
+
+We can test whether the data are consistent with a specific distribution by calculating the expected probability of survival at each time in our dataset and including these times as an offset term in the formula argument of survdiff().
+
+```{r}
+#load the tongue cancer data and create a plot that shows the K-M estimate for overall survival (ignoring tumor type) and the two parametric models from the previous papers:
+# exponential with lambda = 0.009, 
+# log-logistic with lambda = 0.016, alpha = 1
+data(tongue)
+
+tongsurv<-survfit(Surv(time,delta)~1,data=tongue)
+
+# plot using ggplot
+tongueplot<-ggsurv(tongsurv,CI=FALSE,plot.cens=FALSE)
+
+tongueplot+
+  geom_line(aes(x=time,y=exp(-time*0.009),color="Exponential"))+
+  geom_line(aes(x=time,y=1/(1+0.016*time),color="Log-logistic"))+
+  guides(color=guide_legend(title="Model"))
+
+# using base R
+plot(tongsurv,conf.int = FALSE)
+with(tongue,points(time,exp(-time*0.009),col="red"))
+with(tongue,points(time,1/(1+0.016*time),col="blue"))
+legend("topright", fill = c("black", "red", "blue"),
+legend = c("Kaplan-Meier estimates from data",
+expression(paste("Exponential, ",lambda, " = 0.009", sep = "")),
+expression(paste("Log-logistic with ",lambda, " = 0.016 and ", alpha, " = 1", sep = ""))))
+
+# perform 2 one sample log-rank tests to determine if the data is consistent with the previous parametric models.
+# Hint: use offset(expected_survival) on the right side of the survdiff() formula
+
+# exponential with lambda = 0.009, 
+survdiff(Surv(time,delta)~offset(exp(-time*0.009)),data=tongue)
+
+# log-logistic with lambda = 0.016, alpha = 1
+survdiff(Surv(time,delta)~offset(1/(0.016*time+1)),data=tongue)
+
+# Are the data consistent with the parametric models?
+
+```
+
+#### 2+ Sample hypothesis tests with no covariates
+
+In the bone marrow transplant (bmt) data, suppose investigators are interested in the association between receiving methotrexate (MTX) as a graft-vs-host prophylactic and time to either death or relapse (disease-free survival).
+
+```{r}
+# use the bmt data to create a dataset with event time and indicator for disease-free survival as well as MTX treatment status and disease group (ALL, AML low risk, AML high risk)
+data(bmt) 
+
+bmt_dat <- bmt %>% as.tibble() %>% select(group,t2,d3,z10) %>% 
+  rename(trt=z10) %>% 
+  mutate(trt=recode_factor(trt,`0`="no mtx used",`1`="mtx used"),
+         group=recode_factor(group,`1`="ALL",`2`="AML low",`3`="AML high"))
+
+# plot Kaplan-Meier disease-free survival curves for each treatment group
+# make sure to add a legend or label
+bmtfit <- survfit(Surv(t2,d3)~trt, data=bmt_dat)
+
+survminer::ggsurvplot(bmtfit)
+
+# base R
+plot(bmtfit, lty=c(1,2))
+legend("topright", legend=c("no mtx", "mtx"), lty=c(1,2))
+
+```
+
+Test the hypothesis that the hazard rate is same for both MTX treatment groups at all time points vs. the alternative that hazard rates differ at some time point.
+
+```{r}
+# Use survdiff() to perform a log-rank test of the hypothesis that the hazard rate is same for both treatment groups
+( bmttest_lr<-survdiff(Surv(t2,d3)~trt, data=bmt_dat, rho=0) ) 
+
+# now perform a Peto-Peto test of the same hypothesis
+( bmttest_pp<-survdiff(Surv(t2,d3)~trt, data=bmt_dat, rho=1) ) 
+
+# What is the interpretation of these results?
+
+# How do the two tests differ in terms of the weights given to each time point?
+```
+
+#### 2+ Sample hypothesis tests adjusting for covariates
+
+Before transplantation, the investigators grouped patients into three risk categories: ALL, AML low risk, and AML high risk. Suppose we want to adjust for patient risk category when testing for association between MTX treatment and disease-free survival.
+
+Later, you will discuss how to adjust using regression. Today, we will use stratification.
+
+```{r}
+#plot Kaplan-Meier disease-free survival curves for each of the 6 treatment/risk group category
+bmtfit2<-survfit(Surv(t2,d3)~trt+group, data=bmt_dat)
+
+ggsurvplot(bmtfit2, facet.by = "group", color = "trt")
+
+# Test whether the hazard rate between the MTX treatment groups differs when stratifying by the risk level
+survdiff(Surv(t2,d3)~trt+strata(group), data=bmt_dat,rho=0)
+survdiff(Surv(t2,d3)~trt+strata(group), data=bmt_dat,rho=1)
+
+# What conclusion do you draw from this test?
+```
