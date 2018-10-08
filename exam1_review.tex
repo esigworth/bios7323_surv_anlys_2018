@@ -1,0 +1,73 @@
+\documentclass[11pt]{article}
+\usepackage{amsfonts, amssymb, amsmath, amsthm, graphicx, wasysym}
+\DeclareGraphicsRule{*}{eps}{*}{}
+
+\special{papersize=8.5in,11in}
+\setlength{\pdfpageheight}{\paperheight}
+\setlength{\pdfpagewidth}{\paperwidth}
+
+\setlength{\textwidth}{7.5in} \setlength{\textheight}{9.5in}
+\setlength{\oddsidemargin}{-.5in} \setlength{\parskip}{0.15in}
+\setlength{\topmargin}{-0.5in} \pagestyle{empty}
+\setlength{\headheight}{0in} \setlength{\headsep}{0in}
+\setlength{\parindent}{0in}
+
+\allowdisplaybreaks
+
+\begin{document}
+
+\underline{BIOS 7323 - Exam 1 Review}
+
+\textbf{Chapters 1 \& 2}
+\begin{itemize}
+	\item  For a given parametric distribution, calculate mean survival time, median survival time, $p^{th}$ quantile, mean residual lifetime 
+
+	\item Find/convert between pdf, survival function, hazard function, cumulative hazard function given one of these quantities
+	
+	\item Recognize common distributions (Exponential, Weibull, Gamma)
+
+	\item Recognize log-linear model form and multiplicative hazard form of regression models
+\end{itemize}
+
+\textbf{Chapter 3}
+\begin{itemize}
+\item Identify different types of censoring and truncation and construct likelihoods from these components
+
+\item Use a constructed likelihood to find the MLE
+\end{itemize}
+
+\textbf{Chapter 4}
+\begin{itemize}
+\item Calculate Kaplan-Meier estimate for survival (and extensions for $t>\max(T_i)$)
+
+\item Calculate Nelson-Aalen estimates for cumulative hazard
+
+\item Calculate Greenwood \& Nelson-Aaelen variance estimates and be able to draw a rough sketch/plot of these estimates
+
+\item Construct pointwise confidence intervals for survival function 
+
+\item Construct confidence bands for survival function given output 
+
+\item Calculate point and interval estimates of mean survival and $p^{th}$ quantile 
+
+\item Interpret output from \verb|survfit()|
+\end{itemize}
+
+\textbf{Chapter 7}
+\begin{itemize}
+\item Perform one sample hypothesis test with right censoring comparing to known distribution
+
+\item Perform K-sample hypothesis test comparing groups
+
+\item Understand different weight functions
+
+\item Perform hypothesis test for trend
+
+\item Perform stratified hypothesis test including matched pairs
+special case
+
+\item Know when to apply Renyi-type test
+
+\item Interpret output from \verb|survdiff()|
+\end{itemize}
+\end{document} 
