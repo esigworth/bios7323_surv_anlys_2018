@@ -1,0 +1,163 @@
+---
+title: BIOS 7323 Lab 6
+date: 2018-10-15
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab6"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(magrittr)
+library(broom)
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+```
+
+### Objectives
+
+Fit Cox Proportional Hazard Regression Models in R
+
+#### Cox PH model vs. log-rank test
+
+For the bone marrow transplant data, suppose we are interested in comparing the time to death for the three disease groups. What is the relationship between a Cox proportional hazards model and a log-rank hypothesis test? 
+
+```{r}
+#load the bmt data 
+data(bmt)
+
+bmt_dat <- bmt %>% as.tibble() %>% select(group,t1,d1,z2,z7,z10) %>%
+  rename(donor_age=z2, wait_time=z7, trt=z10) %>%
+  mutate(trt=recode_factor(trt,`0`="No MTX used",`1`="MTX used"),
+         group=recode_factor(group,`1`="ALL",`2`="AML low",`3`="AML high"))
+
+# Use coxph() to fit a Cox PH model using disease group as the only covariate
+coxfit1 <- coxph(Surv(t1,d1)~group, data=bmt_dat)
+
+# How do the results compare to a log-rank test of the survival between disease groups?
+logrank1 <- survdiff(Surv(t1,d1)~group, data=bmt_dat)
+
+coxfit1
+logrank1
+```
+
+#### Dealing with ties
+
+The regular partial likelihood assumes there are no ties among event times so only one event occurs at each event time. There are several methods to deal with multiple events at a single event time.
+
+1) Breslow - Ignore ties and use naive partial likelihood assuming no ties
+
+2) Efron - Based on discrete hazard model. More complicated than Breslow, but closer to the correct partial likelihood
+
+3) Cox/exact - Discrete method. Exactly correct, but computationally intensive with many ties 
+
+```{r}
+# How many ties are there in the bmt data for the death event times? 
+
+#number of events
+bmt_dat %>% filter(d1==1) %>% nrow()
+
+#number of unique events
+bmt_dat %>% filter(d1==1) %>% select(t1) %>% unique() %>% nrow()
+
+# What is the default method of handling ties using coxph()? 
+# Is there a method that matches the results from the log-rank test?
+coxfit2<-coxph(Surv(t1,d1)~group, data=bmt_dat, ties="breslow")
+coxfit3<-coxph(Surv(t1,d1)~group, data=bmt_dat, ties="exact")
+
+coxfits <- list(coxfit1,coxfit2,coxfit3)
+
+purrr::map(coxfits, broom::glance) %>% bind_rows %>%
+  mutate(stat.logrank = logrank1$chisq,
+         name = c("efron", "breslow", "exact"),
+         stats.equal = map2_chr(statistic.sc, stat.logrank, all.equal)) %>%
+  select(name, statistic.sc, stat.logrank, stats.equal)
+
+```
+
+
+#### Adjusting for covariates
+
+In the models above there was a difference in survival between the three groups, however these survival differences could potentially be explained by confounding factors which affect survival and are different between the groups. In order to adjust for these factors, we add additional covariates to the Cox PH model.
+
+```{r}
+# fit a new Cox PH model for disease group that also adjusts for donor's age, waiting time to transplant, and MTX use
+coxfit4 <- coxph(Surv(t1,d1)~group + donor_age + wait_time + trt, data=bmt_dat)
+
+# Find the test statistics for the global partial Likelihood ratio test, Wald test, and Score test. Are these overall tests signficant when adjusting for the additional covariates?
+
+# What is the estimated hazard of death (and its 95% CI) for patients in the AML low risk group compared to the ALL group?
+
+summary(coxfit4)
+```
+
+#### Testing hypotheses
+
+Suppose we are interested in testing hypotheses about a subset of regression coefficients rather than the overall model. We can use local tests for these hypotheses.
+
+```{r}
+## Using the coefficents and variance from the previous model fit verify that the contrast matrix below gives the same test results as the summary output for beta1
+# hint: use K&M (8.5.7) on pg. 266 to get a Wald test statistic
+Cmat <- matrix(c(1,0,0,0,0),nrow=1)
+
+#beta hat and variance-covariance of beta hat
+betahat <- coef(coxfit4)
+var_betahat <- vcov(coxfit4)
+
+# chi-squared test statistic
+chi_ts1 <- t(Cmat %*% betahat) %*% solve(Cmat %*% var_betahat %*% t(Cmat)) %*% Cmat %*% betahat
+
+# p-value
+pchisq(chi_ts1, df=nrow(Cmat), lower.tail=FALSE)
+
+
+# Test the hypothesis that the hazard of death is the same for the AML low group and the AML high group, i.e. H0: beta1=beta2
+
+# contrast matrix to test beta1=beta2
+Cmat2 <- matrix(c(1,-1,0,0,0),nrow=1)
+
+# chi-squared test statistic
+chi_ts2 <- t(Cmat2 %*% betahat) %*% solve(Cmat2 %*% var_betahat %*% t(Cmat2)) %*% Cmat2 %*% betahat
+
+# p-value
+pchisq(chi_ts2,df=nrow(Cmat2),lower.tail=FALSE)
+
+
+# Test whether there is an overall 'group' effect using a likelihood ratio test. How many degrees of freedom will the test have?
+
+# fit 'reduced' model
+coxfit5 <- coxph(Surv(t1,d1)~donor_age + wait_time + trt, data=bmt_dat)
+
+# 2*(LL full model - LL reduced model)
+lr_ts <- 2*(coxfit4$loglik[2] - coxfit5$loglik[2])
+
+pchisq(lr_ts, df=2, lower.tail = FALSE)
+
+#equivalent likelihood ratio test using anova() function 
+anova(coxfit4, coxfit5)
+
+```
+
+#### Model building 
+
+We can compare models with different covariates or functional forms using AIC.
+
+```{r}
+# Build a model that includes all the previous covariates and donor_age^2 (use I(donor_age^2)) 
+coxfit6 <- coxph(Surv(t1,d1)~ group + donor_age + I(donor_age^2) + wait_time + trt,data=bmt_dat)
+
+# Compare the AIC of this model to the model with only group and the model with group, donor age, wait time and trt. Which would you choose?
+
+coxmods <- list(coxfit1, coxfit4, coxfit6)
+
+# calculate AIC 'manually'
+purrr::map_dbl(coxmods, function(x) -2*x$loglik[2] + 2*length(coef(x)))
+
+# using AIC() function
+map_dbl(coxmods, AIC)
+```
