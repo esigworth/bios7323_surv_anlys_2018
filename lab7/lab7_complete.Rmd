@@ -1,0 +1,144 @@
+---
+title: BIOS 7323 Lab 7
+date: 2018-10-22
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab7"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(survminer)
+library(magrittr)
+library(broom)
+library(tidyselect)
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+```
+
+### Objectives
+
+Explore main effects and interactions, scaling, and estimated survival in Cox Proportional Hazard Models
+
+#### Interpreting main effects and interaction terms
+
+```{r}
+#load the veterans administration lung cancer data from the 'survival' package
+data(veteran)
+
+#note: prior therapy does not have standard coding 0=no, 10=yes
+veteran %<>% mutate(prior=recode_factor(prior,`0`="no",`10`="yes"))
+
+#fit a Cox PH model for survival time with covariates trt, celltype, age, karno, and prior
+vetmod1 <- coxph(Surv(time,status) ~ trt + celltype + age + karno + prior, data=veteran)
+
+# How do you interpret the coefficients for cell type? age? prior therapy?
+summary(vetmod1)
+
+# Karnofsky score is reported in units of 10 in the dataset. Find the hazard ratio associated with a 10-unit change in Karnofsky score
+veteran %>% pull('karno')
+
+# exp(beta*10)=exp(beta)^10
+
+## use coef * 10 and exponentiate i.e. exp(beta*10)
+coef(vetmod1) %>% magrittr::extract("karno") %>% magrittr::multiply_by(10) %>% exp()
+
+## base R
+exp(vetmod1$coef['karno']*10)
+
+## use HR^10 i.e. exp(beta)^10
+coef(vetmod1) %>% extract("karno") %>% exp() %>% raise_to_power(10)
+
+## change scale in summary
+summary(vetmod1, scale=c(1,1,1,1,1,10,1)) %>% extract("conf.int") 
+
+## fit model with rescaled variable
+vetmod1b <- coxph(Surv(time,status) ~ trt + celltype + age + I(karno/10) + prior, data=veteran)
+
+coef(vetmod1b) %>% extract("I(karno/10)") %>% exp()
+
+# Fit a new model that also includes an interaction between 'trt' and 'prior'
+vetmod2 <- coxph(Surv(time,status) ~ trt + prior + celltype + age + karno + trt:prior,data=veteran)
+
+# What is the interpretation of the interaction?
+# change in hazard ratio of test vs. standard treatment for those with prior therapy
+# change in hazard ratio of prior therapy vs no therapy for those in test treatment group
+
+#Test whether the interaction is significant using a Wald test and a likelihood ratio test.
+# Do the results agree?
+summary(vetmod2)
+anova(vetmod1,vetmod2)
+
+```
+
+#### Cox PH models for data on different time scales
+
+```{r}
+#load the data from kidney_trans.csv
+kt_dat<-read_csv("kidney_trans.csv")
+
+#Plot 4 KM survival curves using t1, t2, t3, & t4 as the time to event
+# (use delta as event indicator for all)
+g1 <- ggsurvplot(survfit(Surv(t1,delta)~1, data=kt_dat))
+g2 <- ggsurvplot(survfit(Surv(t2,delta)~1, data=kt_dat))
+g3 <- ggsurvplot(survfit(Surv(t3,delta)~1, data=kt_dat))
+g4 <- ggsurvplot(survfit(Surv(t4,delta)~1, data=kt_dat))
+
+arrange_ggsurvplots(list(g1,g2,g3,g4),ncol=2,nrow=2)
+
+# Is overall survival the same for the 4 curves?
+
+# Produce 4 Cox PH models using t1, t2, t3, & t4 for the outcome
+# and gender, age, and race as covariates
+# (use delta as event indicator for all)
+tidyselect::vars_select(names(kt_dat), starts_with("t")) %>% 
+  map(function(x) coxph(Surv(kt_dat[,x,drop=TRUE],delta)~ gender + age + race, data=kt_dat)) %>%  
+  map_dfr(function(x) tidy(x,exponentiate=TRUE)) %>%
+  arrange(term)
+
+# How do the results of the 4 models compare? 
+
+# What is the relationship between the four time variables?
+kt_dat %>% arrange(t1)
+
+kt_dat %>% arrange(t1) %>% mutate_at(vars(t1:t4),rank)
+```
+
+#### Estimated survival function from Cox PH model
+
+```{r}
+#Using the kidney transplant model with time t1, produce the default estimated survival curve using survfit()
+ktmod1 <- coxph(Surv(t1,delta)~ gender + age + race, data=kt_dat)
+
+ggs1 <- survfit(ktmod1)
+
+# Do the covariate values used to calculate the default curve make sense?
+mn_dat <- kt_dat %>% summarise(gender=mean(gender),age=mean(age),race=mean(race))
+ggs2 <- survfit(ktmod1, newdata=mn_dat)
+ggsurvplot_combine(list(ggs1,ggs2))
+
+# Produce estimated survival curves for a white male (race=1, gender=1) at age 25, 45, and 65 using the newdata argument (see ?survfit.coxph)
+
+ggs3<-survfit(ktmod1, newdata=data.frame(gender=1,age=25,race=1))
+ggs4<-survfit(ktmod1, newdata=data.frame(gender=1,age=45,race=1))
+ggs5<-survfit(ktmod1, newdata=data.frame(gender=1,age=65,race=1))
+
+ggsurvplot_combine(list(ggs3,ggs4,ggs5))
+
+```
+
+```{r,eval=FALSE,echo=FALSE}
+#code to make kidney_trans.csv
+
+data(kidtran)
+kt<-kidtran %>% rename(t1=time) %>% mutate(t2=t1*0.75, t4=if_else(t1>1500,1.5*t1,0.2*t1))
+utimes<-kt %>% arrange(t1) %>% select(t1) %>% unique() %>% mutate(t3=1:n())
+ktdat<-kt %>% arrange(t1) %>% inner_join(utimes,by="t1")  
+kidney_dat<-ktdat %>% select(obs,t1,t2,t3,t4,delta,gender,race,age) %>% arrange(obs)
+write_csv(kidney_dat,file.path(getwd(),"kidney_trans.csv"))
+```
