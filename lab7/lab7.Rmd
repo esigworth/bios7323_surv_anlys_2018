@@ -1,0 +1,96 @@
+---
+title: BIOS 7323 Lab 7
+date: 2018-10-22
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab7"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(survminer)
+library(magrittr)
+library(broom)
+library(tidyselect)
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+```
+
+### Objectives
+
+Explore main effects and interactions, scaling, and estimated survival in Cox Proportional Hazard Models
+
+#### Interpreting main effects and interaction terms
+
+```{r}
+#load the veterans administration lung cancer data from the 'survival' package
+data(veteran)
+
+#note: prior therapy does not have standard coding 0=no, 10=yes
+veteran %<>% mutate(prior=recode_factor(prior,`0`="no",`10`="yes"))
+
+# fit a Cox PH model for survival time with covariates trt, celltype, age, karno, and prior
+
+
+# How do you interpret the coefficients for cell type? age? prior therapy?
+
+
+# Karnofsky score is reported in units of 10 in the dataset. Find the hazard ratio associated with a 10-unit change in Karnofsky score
+
+
+
+# Fit a new Cox PH model that also includes an interaction between 'trt' and 'prior'
+
+
+# What is the interpretation of the interaction?
+
+
+#Test whether the interaction is significant using a Wald test and a likelihood ratio test.
+# Do the results agree?
+
+```
+
+#### Cox PH models for data on different time scales
+
+```{r}
+#load the data from kidney_trans.csv
+kt_dat <- read_csv("kidney_trans.csv")
+
+#Plot 4 KM survival curves using t1, t2, t3, & t4 as the time to event
+# (use delta as event indicator for all)
+
+
+# Is overall survival the same for the 4 curves?
+
+
+# Produce 4 Cox PH models using t1, t2, t3, & t4 for the outcome
+# and gender, age, and race as covariates
+
+
+# How do the results of the 4 models compare? 
+
+
+# What is the relationship between the 4 time variables?
+
+```
+
+#### Estimated survival function from Cox PH model
+
+```{r}
+#Using the kidney transplant Cox PH model with time t1, produce the default estimated survival curve using survfit()
+
+
+# Do the covariate values used to calculate the default curve make sense? What is your interpretation of this estimated survival?
+
+
+# Produce and plot estimated survival curves for a white male (race=1, gender=1) at age 25, 45, and 65 using the newdata argument (see ?survfit.coxph)
+
+
+```
+
+
