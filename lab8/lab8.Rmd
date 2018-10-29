@@ -1,0 +1,155 @@
+---
+title: BIOS 7323 Lab 8
+date: 2018-10-29
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab8"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(survminer)
+library(magrittr)
+library(broom)
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+```
+
+### Objectives
+
+Code time-dependent covariates
+
+Check PH assumptions using time-dependent covariates
+
+Use Stratified PH models
+
+#### Data
+
+The file heart_trans.csv contains data for 102 patients on a waiting list for heart transplant.
+
+id: subject id  
+delta: death indicator (0=alive, 1=died)  
+futime: time from acceptance on wait list to death or end of follow-up  
+surgery: prior bypass surgery indicator  
+age: centered age in years at acceptance on wait list (i.e., age-48)  
+trx.wait.time: time before transplant  
+trx: heart transplant indicator  
+era: indicator for transplant era (before or after 1971)  
+
+The primary research question is whether prior bypass surgery affects overall survival after acceptance onto the wait list. 
+
+#### Coding time-dependent covariates
+
+Because some patients undergo heart transplantation, it is also of interest to see how this time-dependent covariate affects overall survival. We will explore the effect of transplantation using a time-transform function `tt()` and by creating a counting process dataset.
+
+```{r}
+#load the data from heart_trans.csv
+heart_dat<-read_csv("heart_trans.csv",col_types = c("iiilddli"))
+
+# create a variable which is equal to the time before transplant (trx.wait.time) for those who received a transplant and is greater than the maximum follow-up time otherwise
+heart_dat %<>% mutate(ttrans=if_else(trx,trx.wait.time,max(futime)+1))
+
+#using the variable you just created and tt() fit a Cox PH model that also includes surgery and age
+ttfit<-coxph(Surv(futime,delta)~surgery+age+tt(ttrans),data=heart_dat,
+             tt=function(x,t,...) (t>=x))
+
+# what is the impact of prior bypass surgery on overall survival in this model?
+
+
+# now fit the same model by creating a counting process dataset 
+# e.g. use tmerge() or survSplit()
+
+
+
+# how many rows are in your counting process dataset?
+
+
+# how do you interpret the coefficient for transplantation?
+
+
+```
+
+
+#### Checking proportional hazards assumptions using time-dependent covariates
+
+A time dependent covariate can be used to test the PH assumption for a fixed-time covariate $Z_1$ by using a known function `g(t)` to create a artifical time-dependent variable $Z_2(t)=Z_1 \times g(t)$. The model for the time-dependent covariate is:
+
+$\lambda(t)=\lambda_0(t)\exp(\beta Z(t))$
+
+A test of $H_0:\beta_2=0$ is a test of the PH assumption for the fixed-time covariate.
+
+Alternatively, we can consider a time-dependent *coefficient* in the model:
+
+$\lambda(t)=\lambda_0(t)\exp(\beta(t) Z)$
+
+Note that in this model, the $\beta$ are a function of time and the $Z$ are constant. If the PH assumption is true $\beta(t)$ will be a horizontal line (i.e. slope = 0).
+
+See the `Using Time Dependent Covariates` vignette in the `survival` package for more info.
+
+```{r}
+#test whether the PH assumption for surgery holds by fitting a Cox PH model with age, surgery, and the artifical time-dependent variable surgery x log(time) using tt()
+
+
+#Is the PH assumption is violated for surgery?
+
+
+#fit a cox PH model with fixed covariates age and surgery
+
+
+#use this model fit in cox.zph() to estimate time dependent coefficients, beta(t), using a log transformation
+
+
+#plot the time-dependent coefficient for surgery using the output of cox.zph
+
+
+# based on the test and plot of the time-dependent coefficient, does the PH assumption hold for surgery?
+```
+
+#### Stratified proportional hazards model
+
+One approach to correct for a covariate which violated the proportional hazards assumption is to stratify on the covariate and fit a PH model for the other covariates within each strata, $j=1,\ldots,s$.
+
+$\lambda_j(t)=\lambda_{0j}(t)\exp(\beta Z(t))$
+
+The baseline hazards are allowed to vary across strata, but the coefficients are assumed to be the same for each strata. We can test this assumption using a likelihood ratio test or a Wald test.
+
+```{r}
+# fit a Cox PH model with fixed surgery and age covars, a time-dependent covar for transplant, and a strata for each era
+
+
+#fit the model above separately for the patients in each era
+
+
+
+# perform a likelihood ratio test for the null hypothesis of equal effects across strata 
+# lrt <- -2*(logLik(fit_stratified) - (logLik(fit_strata_0) + logLik(fit_strata_1)))
+
+# compare to chi-sq with (s-1)*p=(2-1)*3 df
+# pchisq(lrt, df=(2-1)*3, lower.tail = FALSE)
+
+# perform a Wald test of the same hypothesis
+
+#coefficients from models in 2 strata
+# strcoef<-c(fit_strata_0$coef, fit_strata_1$coef) 
+
+#make block diagonal covar matrix
+# offdiag<-matrix(rep(0,9),nrow=3)
+# strvar<-rbind(cbind(fit_strata_0$var,offdiag),cbind(offdiag,fit_strata_1$var)) )
+
+#contrast matrix
+# C=matrix(c(1,0,0,-1,0,0,
+#         0,1,0,0,-1,0,
+#         0,0,1,0,0,-1),
+#         nrow=3,byrow=TRUE)
+
+# get wald test statistic
+
+
+# What conclusion can you draw from these tests?
+
+```
