@@ -1,0 +1,121 @@
+---
+title: BIOS 7323 Lab 9
+date: 2018-11-05
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab9"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(magrittr)
+
+#survival analysis pkgs
+library(survival)
+```
+
+### Objectives
+
+Understand the proportional hazards assumption in Cox regression
+
+#### Data
+
+The file liver.txt contains the data for 418 patients with primary biliary cirrhosis. 312 of these patients were randomized to receive either D-penicillamine or placebo in the clinical trial. Limited data is available on the other 106 patients. Each row of the file corresponds to a single patient. (The first row of the file contains the variable names.) Dataset obtained from emersonstatistics.com.
+
+For this lab, we will investigate whether stage of liver disease is associated with survival. Note: For simplicity, we will not adjust for other variables, but this is not recommended in practice.
+
+#### Visualize proportional hazards from Cox model
+
+```{r}
+# load the data 
+liver_dat<-read_table("liver.txt")
+
+# keep only stage, death status, and observed time variables
+liver<-select(liver_dat, obstime, status, stage)
+
+#Fit a Cox PH model for the association between time to death and disease stage
+# including disease stage as a CATEGORICAL variable
+
+
+# Plot the predicted survival curves for each stage based on the cox PH model
+
+
+# load the supplemental function
+source("inst_haz.R")
+
+# use instant_haz(coxph.fit) to produce estimates of the baseline instantaneous hazard
+
+
+# plot the instantaneous hazard over time for each stage
+# hint: multiply the baseline hazard by the appropriate hazard ratio from the model to get estimates for stage 2, 3, and 4
+
+
+# plot a smoothed estimate of the log instantaneous hazards for each stage
+
+
+# Do the hazards appear to be proportional?
+
+
+```
+
+
+
+```{r}
+#Now fit a Cox PH model for the association between disease stage and time to death 
+# including disease stage as a CONTINUOUS variable
+
+
+# Plot the predicted survival curves for each stage based on the cox PH model
+
+
+# use instant_haz(coxph.fit) to produce estimates of the baseline instantaneous hazard
+
+
+# plot a smoothed estimate of the log instantaneous hazards for each stage
+
+
+# What is the difference between the first and second models in terms of the PH assumption?
+```
+
+
+```{r}
+#Fit a Cox PH model for time to death stratified by stage 
+
+
+# produce the instantaneous hazards for each strata using instant_haz(coxph.fit)
+
+
+# plot the smoothed log instantaneous hazards for each strata
+
+
+# Does the proportional hazards assumption appear to hold between strata?
+
+```
+
+#### Graphical checks of Proportional Hazards Assumption
+
+There are several approaches to graphically check the proportional hazards assumption. Here we will examine an approach based on cumulative hazard estimates from a stratified Cox model (See K&M Chp 11.4 and pgs. 19-22 in Chp 11 lecture notes). If the proportional hazards assumption holds, the baseline cumulative hazard rates in each strata should be a constant multiple of each other.
+
+```{r}
+#using the model stratified by stage calculate the cumulative hazards using basehaz()
+# and plot the log cumulative hazards vs. time
+
+
+```
+
+```{r}
+#plot the differences in log cumulative hazard (e.g. log(stage1)-log(stage4), log(stage2)-log(stage4), etc.) vs. time
+
+
+```
+ 
+```{r}
+#produce the Andersen plot (cumhaz for stage 1 vs. cumhaz for stage 4, cumhaz for stage 2 vs. cumhaz for stage 4, etc.)
+
+
+# Based on these three plots, does disease stage meet the PH assumption?
+
+```
