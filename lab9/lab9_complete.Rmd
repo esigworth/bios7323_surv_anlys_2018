@@ -1,0 +1,146 @@
+---
+title: BIOS 7323 Lab 9
+date: 2018-11-05
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab9"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(magrittr)
+
+#survival analysis pkgs
+library(survival)
+```
+
+### Objectives {.tabset}
+
+Understand the proportional hazards assumption in Cox regression
+
+#### Data
+
+The file liver.txt contains the data for 418 patients with primary biliary cirrhosis. 312 of these patients were randomized to receive either D-penicillamine or placebo in a clinical trial. Limited data is available on the other 106 patients. Each row of the file corresponds to a single patient. (The first row of the file contains the variable names.) Dataset obtained from emersonstatistics.com.
+
+For this lab, we will investigate whether stage of liver disease is associated with survival. Note: For simplicity, we will not adjust for other variables, but this is not recommended in practice.
+
+#### Visualize proportional hazards from Cox model 
+
+```{r}
+#load the data 
+liver_dat<-read_table("liver.txt")
+
+#keep only stage, death status, and observed time variables
+liver<-select(liver_dat, obstime, status, stage)
+
+#Fit a Cox PH model for the association between time to death and disease stage
+# including disease stage as a CATEGORICAL variable
+modelA <- coxph(Surv(obstime,status)~factor(stage), data=liver)
+
+# Plot the predicted survival curves for each stage based on the cox PH model
+plot(survfit(modelA, newdata=data.frame(stage=1:4)), col=1:4)
+
+#Use basehaz() to produce estimates of the cumulative hazard
+# when instant_haz() is used below, basehaz() is called to get these cumulative hazards
+cumhaz<-survival::basehaz(modelA, center=FALSE)
+
+#load the supplemental function
+source("inst_haz.R")
+
+#use instant_haz(coxph.fit) to produce estimates of the baseline instantaneous hazard
+instanthaz_A <- instant_haz(modelA)
+
+# plot the instantaneous hazard over time for each stage
+# hint: multiply the baseline hazard by the appropriate hazard ratio from the model to get estimates for stage 2, 3, and 4
+
+all_inst_hazA<-ggplot(data=instanthaz_A, aes(x=time,y=inst_haz))+
+  geom_line()+
+  geom_line(aes(x=time,y=inst_haz*exp(coef(modelA)[1])), color=2)+
+  geom_line(aes(x=time,y=inst_haz*exp(coef(modelA)[2])), color=3)+
+  geom_line(aes(x=time,y=inst_haz*exp(coef(modelA)[3])), color=4)+
+  ylab("inst. hazard")
+
+all_inst_hazA
+
+# plot the log instantaneous hazard over time for each stage
+# Note: this code is actually transforming the y-axis NOT the actual hazard values
+all_inst_hazA+scale_y_continuous(trans="log")+ylab("log inst. hazard")
+
+# plot a smoothed estimate of the log instantaneous hazards for each stage
+all_inst_hazA_2<-ggplot(data=instanthaz_A, aes(x=time,y=inst_haz))+
+  geom_smooth(method="loess", se=FALSE, color=1)+
+  geom_smooth(aes(x=time,y=inst_haz*exp(coef(modelA)[1])), color=2, method="loess", se=FALSE)+
+  geom_smooth(aes(x=time,y=inst_haz*exp(coef(modelA)[2])), color=3, method="loess", se=FALSE)+
+  geom_smooth(aes(x=time,y=inst_haz*exp(coef(modelA)[3])), color=4, method="loess", se=FALSE)+
+  scale_y_continuous(trans="log")+ylab("smoothed log inst. hazard")
+
+all_inst_hazA_2
+
+if (0){
+#smooth log inst. hazard using base R
+inst_haz_loess<-loess.smooth(instanthaz_A$time,instanthaz_A$inst_haz)
+
+plot(inst_haz_loess$x, log(inst_haz_loess$y),type="l",ylim=c(-5,-1))
+lines(inst_haz_loess$x, log(inst_haz_loess$y*exp(coef(modelA)[1])),type="l", col=2)
+lines(inst_haz_loess$x, log(inst_haz_loess$y*exp(coef(modelA)[2])),type="l", col=3)
+lines(inst_haz_loess$x, log(inst_haz_loess$y*exp(coef(modelA)[3])),type="l", col=4)
+}
+
+# Do the hazards appear to be proportional?
+
+```
+
+```{r}
+
+#Fit a Cox PH model for the association between disease stage and time to death 
+# including disease stage as a CONTINUOUS variable
+modelB <- coxph(Surv(obstime,status)~stage, data=liver)
+
+# Plot the predicted survival curves for each stage based on the cox PH model
+plot(survfit(modelB, newdata=data.frame(stage=1:4)), col=1:4)
+
+#Use basehaz() to produce estimates of the cumulative hazard
+# when instant_haz() is used below, basehaz is called to get these cumulative hazards
+cumhazB<-survival::basehaz(modelB, center=FALSE)
+
+#use instant_haz(coxph.fit) to produce estimates of the baseline instantaneous hazard
+instanthaz_B <- instant_haz(modelB)
+
+# plot a smoothed estimate of the log instantaneous hazards for each stage
+all_inst_hazB_2<-ggplot(data=instanthaz_B, aes(x=time,y=inst_haz*exp(1*coef(modelB))))+
+  geom_smooth(method="loess", se=FALSE, color=1)+
+  geom_smooth(aes(x=time,y=inst_haz*exp(2*coef(modelB))), color=2, method="loess", se=FALSE)+
+  geom_smooth(aes(x=time,y=inst_haz*exp(3*coef(modelB))), color=3, method="loess", se=FALSE)+
+  geom_smooth(aes(x=time,y=inst_haz*exp(4*coef(modelB))), color=4, method="loess", se=FALSE)+
+  scale_y_continuous(trans="log")+ylab("smoothed log inst. hazard")
+
+all_inst_hazB_2
+
+# What is the difference between the first and second models in terms of the PH assumption?
+
+```
+
+
+
+```{r}
+
+#Fit a Cox PH model for time to death stratified by stage 
+modelC<-coxph(Surv(obstime,status) ~ strata(stage), data=liver)
+
+# produce the instantaneous hazards for each strata using instant_haz(coxph.fit)
+instanthaz_C<-instant_haz(modelC)
+
+# plot the smoothed log instantaneous hazards for each strata
+base_inst_hazC <- ggplot(data=instanthaz_C, aes(x=time, y=inst_haz, color=strata))+
+                  geom_smooth(method="loess", se=FALSE)+
+                  scale_y_continuous(trans="log")+
+                  ylab("smoothed log inst. hazard")
+
+base_inst_hazC
+
+# Does the proportional hazards assumption appear to hold between strata
+
+```
