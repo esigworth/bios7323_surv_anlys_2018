@@ -1,0 +1,192 @@
+---
+title: BIOS 7323 Lab 10
+date: 2018-11-12
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab10"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(magrittr)
+
+#survival analysis pkgs
+library(survival)
+```
+
+### Objectives {.tabset}
+
+Perform graphical diagnostics for Cox PH models
+
+#### Data
+
+We will continue using the liver data for patients with primary biliary cirrhosis. 312 of these patients were randomized to receive either D-penicillamine or placebo in a clinical trial. Again for simplicity, we will only consider the stage variable, but this is not recommended in practice. Dataset obtained from emersonstatistics.com.
+
+```{r}
+#load the data 
+liver_dat<-read_table("liver.txt")
+
+#keep only select variables and complete cases
+liver<-select(liver_dat, obstime, status, stage) %>% filter_all(all_vars(!is.na(.))) 
+```
+
+#### Overall model fit
+
+Cox-Snell residuals:
+
+$r_j=\hat{H}_0(T_j)\exp(\hat{\beta}'Z_j), \; j= 1, \ldots,n$
+
+If the assumed Cox model holds and $\hat{\beta}$ and $\hat{H}_0$ are close to their true values, the $r_j$ are a censored sample from a unit exponential distribution.
+
+If $\hat{H}_r(x)$ is a cumulative hazard estimate based on $\{r_j,\delta_j\}$, a plot of $r_j$ vs. $\hat{H}_r(x)$ should be a straight line through the origin with slope 1.
+
+```{r, fig.align="center"}
+# compare the overall model fit of the two Cox PH models below
+fit1 <- coxph(Surv(obstime,status) ~ factor(stage), data=liver)
+fit2 <- coxph(Surv(obstime,status) ~ strata(stage), data=liver)
+
+# First, for each model obtain the Cox-Snell residuals using the following procedure:
+# 1) get the martingale residuals using resid(fit, type="martingale")
+# 2) calculate the cox-snell residuals as 'liver$status - martingale residual'
+
+liver_cs <- mutate(liver, 
+            mres1=resid(fit1, type="martingale"), csres1 = status-mres1,
+            mres2=resid(fit2, type="martingale"), csres2 = status-mres2)
+
+# Next, use survfit() to get a Fleming-Harrington survival estimate using the Cox-Snell residual as 'time' and 'status' as the event indicator in the Surv() object
+
+
+# Transform the survival estimate to a cumulative hazard estimate using the appropriate identity
+
+cs_dat <- map(c('csres1', 'csres2'),
+    function(x) survfit(Surv(liver_cs[,x,drop=TRUE],status)~1, type="fleming-harrington", data=liver_cs)) %>%
+    map_dfr(function(x) tibble(resid=x$time,surv=x$surv), .id='model') %>%  
+    mutate(cumhaz=-log(surv)) 
+
+# Make a line plot of the Cox-Snell residuals vs the estimated cumulative hazard to check for overall model fit 
+cs_dat %>% ggplot(aes(x=resid, y=cumhaz, color=model)) + 
+           geom_line() +
+           geom_abline(intercept = 0, slope = 1, color="gray") +
+           labs(x="Residual",y="Estimated Cumulative Hazard Rate")
+
+# Based on the plots, what are your conclusions about the overall fit of these two models?
+```
+
+#### Graphical checks of Proportional Hazards Assumption
+
+There are several approaches to graphically check the proportional hazards assumption.
+
+Approach 1: Cumulative Hazard plots
+
+The first approach uses cumulative hazard estimates from a stratified Cox model. If the proportional hazards assumption holds, the baseline cumulative hazard rates in each strata should be a constant multiple of each other.
+
+```{r, fig.align="center"}
+#using the stratified model plot the log cumulative hazards vs. time by strata
+basehaz(fit2) %>% ggplot(aes(x=time,y=log(hazard),color=strata)) + 
+  geom_step() + labs(y="Log Cumulative Hazard Rate")
+```
+
+```{r, fig.align="center"}
+# the code below will produce the cumulative hazard estimates at each event time for each stage
+cumhaz_stg <- basehaz(fit2) %>% 
+    spread(key=strata, value=hazard) %>% 
+    rename(stg1="stage=1", stg2="stage=2", stg3="stage=3", stg4="stage=4") %>%
+    fill(stg1,stg2,stg3,stg4,.direction="down") 
+
+# plot the differences in log cumulative hazard (e.g. log(stage1)-log(stage4), log(stage2)-log(stage4), etc.) vs. time
+cumhaz_stg %>%
+    mutate('stage 1 v 4'=log(stg1)-log(stg4),
+           'stage 2 v 4'=log(stg2)-log(stg4),
+           'stage 3 v 4'=log(stg3)-log(stg4)) %>%
+    gather('stage 1 v 4','stage 2 v 4','stage 3 v 4',key="comp",value="val") %>%
+    ggplot(aes(x=time,y=val,col=comp)) + geom_step() +
+    labs(y="Difference in Log Cumulative Hazard Rates")
+```
+ 
+```{r, fig.align="center"}
+#produce the Andersen plot (cumhaz for stage 1 vs. cumhaz for stage 4, cumhaz for stage 2 vs. cumhaz for stage 4, etc.)
+cumhaz_stg %>% gather(stg1,stg2,stg3,key="stage",value="cumhaz") %>%
+  ggplot(aes(x=stg4,y=cumhaz,col=stage)) + 
+  geom_step() + labs(x="Stage 4 Cumulative Hazard",y="Cumulative Hazard",col="strata")
+
+# How do you interpret these plots?
+
+# --> For first plot if PH assumption holds, curves are approximately parallel
+# --> For second plot if PH assumption holds, curves are roughly constant
+# --> For third (Andersen) plot if PH assumption holds, curves should be approximately straight lines through origin
+
+```
+
+Approach 2: Arjas plot
+
+To produce the Arjas plot, we calculate a "total time on test", $TOT_g(t_i)=\sum_{Z_{1j}=g} \hat{H}(\min(t_i,T_j)|\mathbf{Z}_j^*)$, and observed number of events $N_g(t_i)=\sum_{Z_{1j}=g}\delta_jI(T_j\le t_i)$ at each event time for each level of the variable of interest, $Z_1$. Note that Cox model used for this plot does not include or stratify on the variable we're interested in testing for proportional hazards. $Z_1$  is only used in calculation of $TOT_g(t_i)$ and $N_g(t_i)$.
+
+```{r, fig.align="center"}
+# To check for PH of stage using an Arjas plot, first fit a model *without* stage 
+# Note: because there are no covariates, the cumulative hazard is the same for everyone
+fit3 <- coxph(Surv(obstime,status) ~ 1, data=liver, ties="breslow")
+
+# calculate TOT_g and N_g (see K&M 11.4.1 and 11.4.2 on pg 370) 
+# for stage variable in liver dataset
+Arjas_calc_liver <- function(stg, fit){
+    cnt <- table(liver$stage)[stg] # get count in each stage
+    
+    basehaz(fit) %>%  # get cumhaz, if model has covars need adjusted cumhaz for each person
+    inner_join(liver,by=c("time" = "obstime")) %>% # get stage for each time
+    mutate(d=ifelse(stage==stg,status,0), # delta for j in stage
+         haz=ifelse(stage==stg,hazard,0), # cumhaz for j in stage
+         t=ifelse(stage==stg,1,0), # event time for stage
+         N_g=cumsum(d), # number of observed events
+         cumhaz=cumsum(haz), # sum cumulative hazard
+         tot=cnt-cumsum(t), 
+         TOT_g=cumhaz+hazard*tot) %>%
+    select(N_g,TOT_g) %>% mutate(stage=stg)
+}
+
+# Use the Arjas_calc_liver() function and the model without stage to get TOT_g and N_g for each stage and produce an Arjas plot of the four N_g vs. TOT_g curves
+
+map_dfr(1:4, .f=function(x) Arjas_calc_liver(x, fit=fit3)) %>%
+  ggplot(aes(x=N_g,y=TOT_g,col=factor(stage))) +
+  geom_abline(slope=1, intercept=0, alpha=0.5, lty=2) + geom_line() +
+  labs(x="Number of failures (N_g)",y="Estimated Cumulative Hazard Rates (TOT_g)")
+
+# How do you interpret this plot?
+
+# --> For each level of stage, if the Arjas plot is roughly a 45 degree line, then stage does not need to be in model
+# --> For each level of stage, if the Arjas plot is roughly linear with a slope different than 1, stage should be in the model
+# --> If Arjas plot is nonlinear, stage has a non-proportional hazard effect on time to death
+```
+
+Approach 3: Score Residuals
+
+Score residuals can be calculated using the Schoenfeld residuals and the standard errors from the Cox PH model. Under the PH assumption, the score process should fall within bounds defined by a Brownian bridge.
+
+```{r, fig.align="center"}
+#calculate standardized score residuals
+schoenfeld <- resid(fit1, type="schoenfeld")
+times <- as.numeric(rownames(schoenfeld))
+
+vars <- diag(sqrt(fit1$var))
+sch_sum <- apply(schoenfeld,2,cumsum)
+varmat <- matrix(rep(vars,nrow(sch_sum)),
+             nrow=nrow(sch_sum),byrow=TRUE)
+std_res <- sch_sum*varmat
+
+# plot the standardized score residuals for each stage vs. time
+# include lines at -1.3581 and 1.3581 to indicate the 5% bounds of the Brownian bridge
+# stochastic process under the PH assumption
+
+std_res_dat <- as.tibble(cbind(times,std_res)) %>% 
+  rename(stg2='factor(stage)2',stg3='factor(stage)3',stg4='factor(stage)4') %>%
+  gather(stg2,stg3,stg4,key="stage",value="value")
+
+ggplot(std_res_dat, aes(x=times,y=value,col=stage))+geom_step()+
+  geom_hline(yintercept = c(-1.3581,1.3581),linetype=2,alpha=0.7)+
+  labs(y="Standardized Score",col="strata")
+
+# What conclusions can you make based on the plot of score residuals?
+```
+
