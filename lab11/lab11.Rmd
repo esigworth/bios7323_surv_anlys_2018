@@ -1,0 +1,143 @@
+---
+title: BIOS 7323 Lab 11
+date: 2018-11-26
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab11"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(magrittr)
+
+#survival analysis pkgs
+library(survival)
+library(SurvRegCensCov)
+```
+
+### Objectives
+
+Understand different representations of (Weibull) parametric survival analyses
+
+### Data
+
+The file liver.txt contains the data for 418 patients with primary biliary cirrhosis, with stage information available for 312 patients. Dataset obtained from emersonstatistics.com.
+
+### Parametric model forms
+
+Let $X$ be the time to event and $Z$ a vector of fixed time explanatory variables.
+
+> *Accelerated failure time (AFT) form*
+
+$S(x|Z)=S_0(\exp(\theta'Z)x)$ 
+
+where $\theta'=(\theta_1,\ldots,\theta_p)$ is a vector of regression coefficients
+
+Survival of an individual with covariates $Z$ at time $x$ is the same as baseline survival at time $\exp(\theta'Z)x$. The term $\exp(\theta'Z)$ is called the acceleration factor.
+
+> *Log-linear form*
+
+In the log-linear form, if $W \sim$ standard extreme value distribution, then $X \sim$ Weibull. The model in this form is:
+
+$\log X = Y = \mu +\gamma'z +\sigma W$ 
+
+where $\gamma'=(\gamma_1,\ldots,\gamma_p)$ is a vector of regression coefficients and $W$ is the error random variable
+
+If $S_0(x)$ is the survival function of the random variable $\exp(\mu+\sigma W)$ then the AFT and log-linear forms are equivalent with $\theta=-\gamma$. This means we can estimate parameters in the log-linear form and transform to interpret the covariates in AFT form. 
+
+> *Proportional hazards form*
+
+ The Weibull model also has a proportion hazards (PH) form:
+
+$h(x|Z)=h_0(x)\exp(\beta'Z)=\alpha \lambda x^{\alpha-1}\exp(\beta'Z)$
+
+The PH form is related to the log-linear form through the reparametrization:
+
+$\alpha =\frac{1}{\sigma} \qquad \lambda=\exp(\frac{-\mu}{\sigma}) \qquad \beta_j=\frac{-\gamma_j}{\sigma},\; j=1,\ldots,p$
+
+```{r}
+#load the data 
+liver_dat<-read_table("liver.txt")
+
+#keep only stage, death status, and observed time variables and remove those missing stage
+liver<-select(liver_dat, obstime, status, stage) %>% remove_missing()
+
+# fit a parametric Weibull regression with stage as the covariate using survreg(..., dist="weibull")
+mod1 <- survreg(Surv(obstime,status) ~ factor(stage), data=liver, dist="weibull")
+
+# Find the MLE of median survival for a patient with stage 1 primary biliary cirrhosis using predict(..., type="quantile", p=0.5, newdata=data.frame(stage=1)) 
+
+
+# What is the MLE of median survival for a patient with stage 4 primary biliary cirrhosis? 
+
+
+# get a summary of the model fit, note that the parameters are in the log-linear form
+summary(mod1)
+
+# using the output from survreg() extract and save the estimates of mu (Intercept) and sigma (Scale)
+
+
+# Now get the estimates for var(mu), var(sigma) and cov(mu,sigma)
+# Note: the variance/covar matrix from survreg() has the variance of log(sigma), not sigma
+# using delta-method:
+#   var(sigma)=var(log(sigma))*sigma^2
+#   cov(mu,sigma)=cov(mu,log(sigma))*sigma
+
+
+```
+
+```{r}
+## Proportional Hazards form ##
+
+# using the output from survreg() and the reparameterization above, get point estimates for
+# lambda and alpha in the PH form
+
+
+# now get the variance of lambda and alpha using K&M formulas (12.2.14) and (12.2.15)
+
+#12.2.14
+# varlambda=exp(-2 * (mu/sigma)) * ((varmu/sigma^2) - (2 * (mu * cvmusigma)/sigma^3) + ((mu^2 * varsigma)/sigma^4)) 
+
+#12.2.15
+# varalpha=varsigma/sigma^4 
+```
+
+
+```{r}
+## Accelerated failure time form ##
+
+# using the output from survreg() and the appropriate reparameterization, get the acceleration factors for stage 2, 3, and 4 compared to stage 1. 
+
+# How do you interpret the acceleration factor?
+
+```
+
+```{r}
+## Use WeibullReg() in the SurvRegCensCov package to get parameter estimates in PH form and AFT form
+# and verify they match those calculated above
+
+# Note: WeibullReg() uses the same parameterizations as K&M, but switches the names of some variables. For example, alpha=1/sigma in K&M is called gamma by WeibullReg(). see vignette("weibull")
+
+# Hint: In WeibullReg() output 1/ETR = Acceleration factor
+
+```
+
+#### Parametric Model Diagnostics
+
+Cox-Snell residuals can be used to check the overall fit of the model. For the Weibull model the C-S residuals are:
+
+$r_i = \hat{\lambda}\exp(\hat{\beta}'\mathbf{Z}_i)t_{i}^{\hat{\alpha}}$
+
+If the model fits the data, a plot of $r_i$ vs. the Nelson-Aalen estimator of the cumulative hazard of the $r_i$'s should be a straight line with slope 1.
+
+```{r}
+# assess the overall fit of the Weibull model by producing a cumulative hazard plot for the Cox-Snell residuals (see K&M p. 414)
+# Hint: first reparameterize from the log-linear model gamma parameters to PH beta parameters
+
+# Does the Weibull model fit well based on the C-S cumulative hazard plot?
+
+
+```
