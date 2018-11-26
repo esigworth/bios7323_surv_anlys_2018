@@ -1,0 +1,227 @@
+---
+title: BIOS 7323 Lab 11
+date: 2018-11-26
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/labs/lab11"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(magrittr)
+
+#survival analysis pkgs
+library(survival)
+library(SurvRegCensCov)
+```
+
+### Objectives
+
+Understand different representations of (Weibull) parametric survival analyses
+
+### Data
+
+The file liver.txt contains the data for 418 patients with primary biliary cirrhosis. Each row of the file corresponds to a single patient. (The first row of the file contains the variable names.) Dataset obtained from emersonstatistics.com.
+
+### Parametric model forms
+
+Let $X$ be the time to event and $Z$ a vector of fixed time explanatory variables.
+
+> *Accelerated failure time (AFT) form*
+
+$S(x|Z)=S_0(\exp(\theta'Z)x)$ 
+
+where $\theta'=(\theta_1,\ldots,\theta_p)$ is a vector of regression coefficients
+
+Survival of an individual with covariates $Z$ at time $x$ is the same as baseline survival at time $\exp(\theta'Z)x$. The term $\exp(\theta'Z)$ is called the acceleration factor.
+
+> *Log-linear form*
+
+In the log-linear form, if $W \sim$ standard extreme value distribution, then $X \sim$ Weibull. The model in this form is:
+
+$\log X = Y = \mu +\gamma'z +\sigma W$ 
+
+where $\gamma'=(\gamma_1,\ldots,\gamma_p)$ is a vector of regression coefficients and $W$ is the error random variable
+
+If $S_0(x)$ is the survival function of the random variable $\exp(\mu+\sigma W)$ then the AFT and log-linear forms are equivalent with $\theta=-\gamma$. This means we can estimate parameters in the log-linear form and transform to interpret the covariates in AFT form. 
+
+> *Proportional hazards form*
+
+ The Weibull model also has a proportion hazards (PH) form:
+
+$h(x|Z)=h_0(x)\exp(\beta'Z)=\alpha \lambda x^{\alpha-1}\exp(\beta'Z)$
+
+The PH form is related to the log-linear form through the reparametrization:
+
+$\alpha =\frac{1}{\sigma} \qquad \lambda=\exp(\frac{-\mu}{\sigma}) \qquad \beta_j=\frac{-\gamma_j}{\sigma},\; j=1,\ldots,p$
+
+```{r}
+#load the data 
+liver_dat<-read_table("liver.txt")
+
+#keep only stage, death status, and observed time variables
+liver<-select(liver_dat, obstime, status, stage) %>% remove_missing()
+
+# fit a parametric Weibull regression with stage as the covariate using survreg(..., dist="weibull")
+mod1 <- survreg(Surv(obstime,status) ~ factor(stage), data=liver, dist="weibull")
+
+# Find the MLE of median survival for a patient with stage 1 primary biliary cirrhosis using predict(..., type="quantile", p=0.5, newdata=data.frame(stage=1)) 
+(medsurv_1 <- predict(mod1, type="quantile", p=0.5, se=TRUE, newdata=data.frame(stage=1)) %>% unlist() )
+
+# What is the MLE of median survival for a patient with stage 4 primary biliary cirrhosis? 
+( medsurv_4 <- predict(mod1, type="quantile", p=0.5, se=TRUE, newdata=data.frame(stage=4)) %>% unlist() )
+
+# get a summary of the model fit, note that the parameters are in the log-linear form
+summary(mod1)
+
+# using the output from survreg() extract the estimates of mu (Intercept) and sigma (Scale)
+mu <- coef(mod1)['(Intercept)']
+sigma <- mod1$scale
+
+# Now get the estimates for var(mu), var(sigma) and cov(mu,sigma)
+# Note: the variance/covar matrix from survreg() has the variance of log(sigma), not sigma
+# using delta-method:
+#   var(sigma)=var(log(sigma))*sigma^2
+#   cov(mu,sigma)=cov(mu,log(sigma))*sigma
+
+varmu <- mod1$var['(Intercept)','(Intercept)']
+varsigma <- mod1$var['Log(scale)','Log(scale)']*sigma^2
+cvmusigma <- mod1$var['Log(scale)','(Intercept)']*sigma
+```
+
+```{r}
+## Proportional Hazards form
+
+# using the output from survreg() and the reparameterization above, get point estimates for 
+# lambda and alpha in the PH form
+
+( lambda <- exp(-mu/sigma) )
+( alpha <- 1/sigma )
+
+# now get the variance of alpha and lambda using K&M formulas (12.2.14) and (12.2.15)
+
+( varlambda=exp(-2 * (mu/sigma)) * ((varmu/sigma^2) - (2 * (mu * cvmusigma)/sigma^3) + ((mu^2 * varsigma)/sigma^4)) )
+
+( varalpha=varsigma/sigma^4 )
+```
+
+```{r}
+## Accelerated failure time form
+
+# using the output from survreg() and the appropriate reparameterization, get the acceleration factors for stage 2, 3, and 4 compared to stage 1. 
+
+# How do you interpret the acceleration factor?
+
+accel <- function(varno,fit) {
+  accel.factor = exp(-fit$coef[varno]) 
+  CI = exp(-fit$coef[varno] + c(-1, 1) * 1.96 * sqrt(mod1$var[varno, varno]))
+return(data.frame=c(accel.factor,CI))
+}
+
+( accel.factors<-lapply(2:4, function(x) accel(x,mod1)) )
+
+#acceleration factor is change in survival for stage 1 vs. stage 4,
+# time is moving 12.3 times faster for stage 4 vs. stage 1
+# or equivalently median survival is 12.3 times longer for stage 1 vs. stage 4
+medsurv_4[1]
+
+medsurv_4[1]*accel.factors[[3]][1]
+
+medsurv_1[1]
+
+
+## Use WeibullReg() in the SurvRegCensCov package to get estimates in PH form and AFT form
+# and verify they match those calculated above
+
+# Note: WeibullReg() uses the same parameterizations as K&M, but switches the names of some variables. For example, alpha=1/sigma in K&M is called gamma by WeibullReg(). see vignette("weibull")
+
+(mod2 <- SurvRegCensCov::WeibullReg(Surv(obstime,status) ~ factor(stage), data=liver) )
+
+# 1/ETR = Acceleration factor
+accel.fact<-1/mod2$ETR 
+colnames(accel.fact) <-c("AF","UB","LB")
+accel.fact
+```
+
+#### Diagnostics
+
+Cox-Snell residuals can be used to check the overall fit of the model. For the Weibull model the C-S residuals are:
+
+$r_i = \hat{\lambda}\exp(\hat{\beta}'\mathbf{Z}_i)t_{i}^{\hat{\alpha}}$
+
+If the model fits the data, a plot of $r_i$ vs. the Nelson-Aalen estimator of the cumulative hazard of the $r_i$'s should be a straight line with slope 1.
+
+```{r}
+# assess the overall fit of the Weibull model by producing a cumulative hazard plot for the Cox-Snell residuals (see K&M p. 414)
+
+# reparameterization from log-linear to PH
+betas <- -coef(mod1)[2:4]/sigma
+
+#create Cox-Snell residuals 
+cs_resid <- liver %>% mutate(betaZ=recode(stage,`1`=0,`2`=betas[1],`3`=betas[2],`4`=betas[3]),
+                 expbetaZ=exp(betaZ), coxsnell=lambda*expbetaZ*obstime^alpha)
+
+#use survfit with C-S residuals in place of time 
+residfit <- survfit(Surv(coxsnell,status)~1,type="fleming-harrington",data=cs_resid)
+
+#transform to get N-A cumulative hazard for residuals
+cs_dat <- data.frame(residfit[["time"]],residfit[["surv"]]) %>% as.tibble() %>%
+  rename(csres=residfit...time..., surv=residfit...surv...) %>%
+  mutate(cumhaz=-log(surv))
+
+ggplot(cs_dat,aes(x=csres,y=cumhaz))+geom_line()+geom_abline(slope=1,intercept=0,lty=2)+
+  labs(x="Cox-Snell residual",y="Estimated Cumulative Hazard of Residual")
+
+
+# Does the Weibull model fit well?
+
+
+#make a plot of deviance residuals vs. time
+#based on this plot is the model adequate?
+
+dev_dat<-data.frame(dr=resid(mod1,type="deviance"),time=liver$obstime) %>% as.tibble()
+
+ggplot(dev_dat,aes(x=time,y=dr))+geom_point(alpha=0.4,shape=16)+labs(y="deviance residual")
+
+```
+
+
+```{r,eval=FALSE,include=FALSE}
+
+
+
+#fig 12.7
+data("larynx")
+
+testfit<-survreg(Surv(time,delta) ~ factor(stage)+age, data=larynx, dist="weibull")
+
+## reparameterization
+lmu <- testfit$coef[1]
+lsigma <- testfit$scale
+llambda <- exp(-lmu/lsigma)
+lalpha <- 1/lsigma
+lbetas <- -testfit$coef[2:5]/lsigma
+
+lcs_resid<-larynx %>% mutate(stg=recode(stage,`1`=0,`2`=lbetas[1],`3`=lbetas[2],`4`=lbetas[3]),
+                    betaZ=stg+lbetas[4]*age, expbetaZ=exp(betaZ),
+                 coxsnell=llambda*expbetaZ*time^lalpha)
+
+lresidfit<-survfit(Surv(coxsnell,delta)~1,type="fleming-harrington",data=lcs_resid)
+
+lcs_dat<-data.frame(lresidfit[["time"]],lresidfit[["surv"]]) %>% as.tibble() %>% rename(time=lresidfit...time...,surv=lresidfit...surv...) %>%
+  mutate(cumhaz=-log(surv))
+
+ggplot(lcs_dat,aes(x=time,y=cumhaz))+geom_line()+geom_abline(slope=1,intercept = 0,lty=2)
+
+
+testfit2<-survreg(Surv(time,delta) ~ factor(stage)+age, data=larynx, dist="loglogistic")
+
+dev<-data.frame(dr=resid(testfit2,type="deviance"),time=larynx$time) %>% as.tibble()
+
+ggplot(dev,aes(x=time,y=-dr))+geom_point(alpha=0.4,shape=16)+
+  labs(y="deviance residual")
+```
+
