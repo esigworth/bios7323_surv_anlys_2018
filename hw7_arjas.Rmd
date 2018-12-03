@@ -1,0 +1,182 @@
+---
+title: HW7 - Reproduce Arjas plots
+subtitle: K&M figures 11.14 (p. 373) and 11.15 (p. 374)
+date: 2018-11-27
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/hw/hw7"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(magrittr)
+
+#survival analysis pkgs
+library(survival)
+library(KMsurv)
+```
+
+Note: For SAS code used to produce plots in K&M textbook see UCLA Stats example [here](https://stats.idre.ucla.edu/sas/examples/sakm/survival-analysis-by-john-p-klein-and-melvin-l-moeschbergerchapter-11-regression-diagnostics/)
+
+To produce the Arjas plot, we calculate a "total time on test", $TOT_g(t_i)=\sum_{Z_{1j}=g} \hat{H}(\min(t_i,T_j)|\mathbf{Z}_j^*)$, and observed number of events $N_g(t_i)=\sum_{Z_{1j}=g}\delta_jI(T_j\le t_i)$ at each event time for each level of the variable of interest, $Z_1$. Note that Cox model used for this plot does not include or stratify on the variable we're interested in testing for proportional hazards. $Z_1$  is only used in calculation of $TOT_g(t_i)$ and $N_g(t_i)$.
+
+### K&M fig 11.14 
+
+#### First method - tidyverse & pipes
+
+```{r, fig.width=7, fig.height=6, fig.align="center"}
+data(alloauto)
+fit1 <- coxph(Surv(time,delta)~1, data=alloauto, ties="breslow")
+#Note: because there are no covariates, the cumulative hazard is the same for each person
+
+# calculate TOT_g and N_g (see K&M 11.4.1 and 11.4.2 on pg 370) 
+# for type variable in alloauto dataset
+Arjas_calc <- function(typ, fit){
+    cnt <- table(alloauto$type)[typ] # get count in each type
+    
+    basehaz(fit) %>%  # get cumhaz, if model has covars need adjusted cumhaz for each person
+    inner_join(alloauto, by="time") %>%  # get type for each time
+    mutate(d=ifelse(type==typ,delta,0), # delta for j in type
+         haz=ifelse(type==typ,hazard,0), # cumhaz for j in type
+         t=ifelse(type==typ,1,0), # event time for type
+         N_g=cumsum(d), # number of observed events
+         cumhaz=cumsum(haz), # sum cumulative hazard
+         tot=cnt-cumsum(t), 
+         TOT_g=cumhaz+hazard*tot,
+         time_dup= ifelse(duplicated(time) | duplicated(time, fromLast = TRUE), 1,0),
+         flg=ifelse(time_dup==1 & delta==0,1,0)) %>% 
+      filter(flg==0) %>% # correct cum haz for ties between groups with only one censored
+    select(N_g,TOT_g) %>% mutate(type=typ)
+}
+
+# Use the Arjas_calc() function and the model without type to get TOT_g and N_g for each transplant type and produce an Arjas plot of the two N_g vs. TOT_g curves
+
+map_dfr(1:2, .f=function(x) Arjas_calc(x, fit=fit1)) %>%
+  ggplot(aes(x=N_g,y=TOT_g,col=factor(type,labels = c("allo","auto")))) +
+  geom_abline(slope=1, intercept=0, alpha=0.5, lty=2) + geom_line() +
+  labs(title="K&M figure 11.14", col="",
+    x="Number of failures (N_g)",y="Estimated Cumulative Hazard Rates (TOT_g)")
+
+```
+
+```{r,include=FALSE}
+rm(list=ls())
+```
+
+#### Second method - use STATA package starjas
+
+STATA has a user written module to produce Arjas plots, but the results do not exactly match those from SAS and R
+
+```{stata, echo=TRUE, results='hide'}
+use "/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/hw/hw7/alloauto.dta",clear
+
+qui stset time delta
+
+* findit starjas
+starjas type
+
+graph export starjas1.svg, replace
+```
+
+![K&M figure 11.14](starjas1.svg)
+
+
+### K&M fig 11.15 
+
+NOTE: The formula for $TOT_g(t_i)=\sum_{Z_{1j}=g} \hat{H}(\min(t_i,T_j)|\mathbf{Z}_j^*)$, so we must use the cumulative hazard, $\hat{H}$, for each individual $j$ *conditional* on the covariates $\mathbf{Z}_j^*$. In the example for fig 11.15 the Cox model includes factors $Z_1$, $Z_2$, $Z_3$, $Z_4$, $Z_5$, $Z_6$, and $Z_7$. 
+
+#### First method - tidyverse & pipes
+
+```{r, fig.width=7, fig.height=6, fig.align="center"}
+data(bmt)
+
+#sort by time (t_i)
+bmt %<>% arrange(t2)
+
+fit2<-coxph(Surv(t2,d3)~z1+z2+z3+z4+z5+z6+z7,data=bmt,ties="breslow")
+
+# adjusted cumulative hazards for each person based on fit2; each column is cumhaz for a person
+cumhaz <- -log(survfit(fit2,newdata=bmt)$surv)
+
+# determine rows in cumulative hazard matrix to keep for each person, i.e. rows where t_i<=T_j
+cum_haz_kp <-bmt %>% select(t2) %>% ( function(x) 1 - duplicated(x) ) %>% cumsum()
+
+# matrix with 1 for cumulative hazards when t_i<=T_j, NA otherwise
+fixhaz<-do.call(cbind, lapply(cum_haz_kp, function(x) c(rep(1,x),rep(NA,max(cum_haz_kp)-x))) )
+
+# times, event indicator, and MTX group membership
+grp_vars <- bmt %>% select(t2,d3,z10) %>% 
+  group_by(t2) %>% mutate(mixed_grp = ifelse(n_distinct(z10)>1,1,0)) %>% ungroup() 
+
+# cumulative hazard matrix with \hat{H}(min(t_i,T_j)|Z_j)
+cumhaz_all<-as.tibble(cumhaz*fixhaz) %>% fill(everything()) %>% 
+  mutate(t2=unique(bmt$t2)) %>% inner_join(grp_vars,by="t2") 
+
+# function to calculate TOT_g and N_g for each MTX group
+Arjas_calc2 <- function(grp, cumhaz_mat){
+
+  grp_cols<-(1:137)[bmt$z10==grp] # get columns matching group
+ 
+  cumhaz_mat %>% select(grp_cols,t2,d3,z10,mixed_grp) %>%
+  mutate(d=ifelse(z10==grp,d3,0),
+         N_g=cumsum(d),
+         TOT_g=cumhaz_mat %>% select(grp_cols) %>% rowSums(),
+         time_dup= ifelse(duplicated(t2) | duplicated(t2, fromLast = TRUE), 1,0),
+         flg=time_dup*mixed_grp*(1-d)) %>% filter(flg==0) %>%
+         select(N_g,TOT_g) %>% mutate(group=grp)
+}
+
+map_dfr(0:1, .f=function(x) Arjas_calc2(x, cumhaz_all)) %>%
+  ggplot(aes(x=N_g,y=TOT_g,col=factor(group,labels = c("no MTX","MTX")))) +
+  geom_abline(slope=1, intercept=0, alpha=0.5, lty=2) + geom_line() +
+  labs(title="K&M figure 11.15", col="",
+    x="Number of failures (N_g)",y="Estimated Cumulative Hazard Rates (TOT_g)")
+
+```
+
+For comparison consider the Arjas plots for MTX group using a Cox model with covariates $Z_1$, $Z_2$, $Z_3$, $Z_4$, $Z_5$, $Z_6$, and $Z_7$ (identical to above) and a Cox model without covariates. The number of failures $N_g$ is identical for both, but $TOT_g$ differs between the models since one uses a conditional cumulative hazard and the other assumes a common cumulative hazard.
+
+```{r, fig.width=7, fig.height=6, fig.align="center"}
+# no covar model
+fit3<-coxph(Surv(t2,d3)~1,data=bmt,ties="breslow")
+
+# get cum. hazard
+cumhaz_novars <- basehaz(fit3)
+
+# recreate matrix with 137 identical columns; one for each person
+cumhaz_novars_mat<-matrix(rep(cumhaz_novars[,1],137), ncol=137)
+dimnames(cumhaz_novars_mat) <- dimnames(cumhaz)
+
+cumhaz_all2<-as.tibble(cumhaz_novars_mat*fixhaz) %>% fill(everything()) %>% 
+  mutate(t2=unique(bmt$t2)) %>% inner_join(grp_vars,by="t2") 
+
+all_cv<-map_dfr(0:1, .f=function(x) Arjas_calc2(x, cumhaz_all)) %>% mutate(model="all covars")
+no_cv<-map_dfr(0:1, .f=function(x) Arjas_calc2(x, cumhaz_all2)) %>% mutate(model="no covars")
+
+rbind(all_cv,no_cv) %>%
+  ggplot(aes(x=N_g,y=TOT_g,col=factor(group,labels = c("no MTX","MTX")),lty=model)) +
+  geom_abline(slope=1, intercept=0, alpha=0.5, lty=2) + geom_line() +
+  labs(title="K&M figure 11.15 with and without covars", col="",
+    x="Number of failures (N_g)",y="Estimated Cumulative Hazard Rates (TOT_g)")
+```
+
+```{r,include=FALSE}
+rm(list=ls())
+```
+
+#### Second method - use STATA package starjas
+
+```{stata, echo=TRUE, results='hide'}
+use "/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/hw/hw7/bmt.dta",clear
+
+qui stset t2 d3
+
+starjas z10, adjust(z1 z2 z3 z4 z5 z6 z7)
+
+graph export starjas2.svg, replace
+```
+
+![K&M figure 11.15](starjas2.svg)
