@@ -1,0 +1,70 @@
+---
+title: HW8 - Study design
+subtitle: 
+date: 2018-12-04
+output:
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir=file.path("/home/nathan/Dropbox/njames/school/PhD/courses/2018_19/ta_surv_anlys2/hw/hw7"))
+
+#tidyverse pkgs
+library(tidyverse)
+library(magrittr)
+
+library(xtable)
+library(knitr)
+```
+
+
+> A clinical trial in early stage breast cancer will randomize patients after their surgery to Tamoxifen (ARM A) versus observation only (ARM B) in 1:1 ratio. The goal of the study is to compare the two treatments with respect to time to relapse, and the logrank test will be used in the analysis. From historical data, we know that after five years, 60% of the patients will still be disease free. We would like to have 90% power to detect an improvement in this disease free rate to 70%. Past studies have been able to accrue approximately 200 patients per year. Choose a suitable study design.
+
+We specify $1-\beta=0.9$, $\alpha=0.05$, and estimate the baseline hazard  from the 5-year survival assuming an exponential distribution as $\lambda_c=-\log(0.6)$ and the desired 5-year hazard as $\lambda_e=-\log(0.7)$. The desired hazard ratio is $\theta = \lambda_e/\lambda_c \approx 0.69$ and the expected annual accrual is 200 participants per year. 
+
+```{r design, cache=TRUE, tidy=TRUE, tidy.opts=list(width.cutoff=70)}
+#define constants
+lambda_e <- -log(0.7)
+lambda_c <- -log(0.6)
+lambdas <- c(lambda_c, lambda_e)
+z_alp <- qnorm(1-0.05/2, lower.tail = TRUE)
+z_pow <- qnorm(1-0.9, lower.tail=FALSE)
+theta <- lambda_e/lambda_c
+ann_accr <- 200
+```
+
+Using these values, we estimate the proportion with relapse in the treatment and placebo arms assuming an exponential distribution of the survival times and varying the accrual and follow-up periods. For a range of accrual times between 2 and 2.5 years and a follow-up period of between 1.5 and 3 years, we can estimate the total sample size needed and determine feasible designs based on the expected annual accrual rate. 
+
+```{r, cache=TRUE, tidy=TRUE, tidy.opts=list(width.cutoff=90)}
+#possible accrual and follow-up periods
+accrual <- c(2, 2.25, 2.5)
+followup <- c(1.5, 2, 2.5, 3)
+designs <- crossing(accrual, followup)
+
+#function for proportion relapsing assuming exponential dist.
+pfunc<-function(acc=NULL,fu=NULL,lmb=NULL){
+  1-(exp(-lmb*fu)*(1-exp(-lmb*acc))/(lmb*acc) )
+}
+
+#P_c and P_e for designs
+Ps <- map_dfc(lambdas, function(x) pfunc(designs[,'accrual'], designs[,'followup'], x))
+
+#function to calculate sample size under each design
+sampN <- function(p_c=NULL,p_e=NULL){
+  8*(z_alp+z_pow)^2/((p_c + p_e)*log(theta)^2)
+}
+
+samp_needed <- sampN(Ps[,1],Ps[,2])
+
+possible_designs <- cbind(designs, rowSums(designs), round(samp_needed),
+                          samp_needed/designs[,'accrual']<=ann_accr)
+names(possible_designs) <- c("accrual","followup","total","sample needed","feasible")
+possible_designs %<>% arrange(feasible, total)
+```
+
+Using these parameters, the feasible design with the shortest total time would take 4 years (2.5 years accrual and 1.5 years follow-up) and would require 483 participants. Fewer participants are required for designs with longer accrual or follow-up.
+
+```{r, echo=FALSE}
+kable(possible_designs)
+```
